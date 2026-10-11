@@ -1,0 +1,1533 @@
+import * as THREE from 'three';
+import { WeaponData, WEAPONS, HIT_ZONES, DifficultyLevel, GameState, CALIBERS } from './GameData';
+import { audioSystem } from './Audio';
+
+// ============ RAGDOLL SYSTEM ============
+interface RagdollPart {
+  mesh: THREE.Mesh;
+  velocity: THREE.Vector3;
+  angularVel: THREE.Vector3;
+  mass: number;
+  grounded: boolean;
+  constraint?: { target: RagdollPart; offset: THREE.Vector3; axis: THREE.Vector3 };
+}
+
+interface Enemy {
+  group: THREE.Group;
+  health: number;
+  maxHealth: number;
+  speed: number;
+  position: THREE.Vector3;
+  velocity: THREE.Vector3;
+  alive: boolean;
+  type: 'crawler' | 'tall' | 'brute';
+  ragdoll: RagdollPart[] | null;
+  hitZones: Map<string, THREE.Mesh>;
+  lastAttackTime: number;
+  state: 'idle' | 'chase' | 'attack' | 'dead';
+  legDamage: number;
+  armDamage: number;
+  weapon?: THREE.Mesh;
+}
+
+interface Bullet {
+  position: THREE.Vector3;
+  velocity: THREE.Vector3;
+  damage: number;
+  caliber: string;
+  life: number;
+  trail: THREE.Line;
+}
+
+interface Particle {
+  mesh: THREE.Mesh;
+  velocity: THREE.Vector3;
+  life: number;
+  maxLife: number;
+}
+
+interface LootDrop {
+  mesh: THREE.Group;
+  position: THREE.Vector3;
+  type: 'weapon' | 'ammo' | 'medkit';
+  id: string;
+  name: string;
+  quantity: number;
+  bobPhase: number;
+}
+
+export class GameEngine {
+  private scene: THREE.Scene;
+  private camera: THREE.PerspectiveCamera;
+  private renderer: THREE.WebGLRenderer;
+  private clock: THREE.Clock;
+  
+  // Player
+  private playerPos: THREE.Vector3;
+  private playerVel: THREE.Vector3;
+  private playerYaw: number = 0;
+  private playerPitch: number = 0;
+  private moveForward = false;
+  private moveBackward = false;
+  private moveLeft = false;
+  private moveRight = false;
+  private isSprinting = false;
+  private isJumping = false;
+  private playerOnGround = true;
+  
+  // Weapon
+  private weaponMesh: THREE.Group | null = null;
+  private currentWeapon: WeaponData | null = null;
+  private lastShotTime = 0;
+  private isReloading = false;
+  private reloadStartTime = 0;
+  private muzzleFlash: THREE.PointLight | null = null;
+  private ammoInMag: number = 0;
+  private isShooting = false;
+  
+  // Enemies
+  private enemies: Enemy[] = [];
+  private bullets: Bullet[] = [];
+  private particles: Particle[] = [];
+  private lootDrops: LootDrop[] = [];
+  private onLootPickup: ((loot: { type: string; id: string; name: string; quantity: number }) => void) | null = null;
+  
+  // Companion
+  private companionMesh: THREE.Group | null = null;
+  private companionPos: THREE.Vector3;
+  private companionHP: number = 80;
+  private companionMaxHP: number = 80;
+  private companionTarget: Enemy | null = null;
+  private companionLastShot: number = 0;
+  private companionState: 'follow' | 'combat' | 'healing' = 'follow';
+  
+  // Level
+  private levelObjects: THREE.Mesh[] = [];
+  private colliders: THREE.Box3[] = [];
+  
+  // Callbacks
+  private onStateUpdate: ((state: Partial<GameState>) => void) | null = null;
+  private onHitMarker: ((zone: string, damage: number) => void) | null = null;
+  private onKill: (() => void) | null = null;
+  private onDamage: ((amount: number) => void) | null = null;
+  
+  // Difficulty
+  private difficulty: DifficultyLevel | null = null;
+  
+  // Raycaster
+  private raycaster: THREE.Raycaster;
+  
+  // Pointer lock
+  private isLocked: boolean = false;
+  
+  // Animation
+  private animationId: number = 0;
+  private container: HTMLElement | null = null;
+
+  constructor() {
+    this.scene = new THREE.Scene();
+    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    this.clock = new THREE.Clock();
+    this.raycaster = new THREE.Raycaster();
+    
+    this.playerPos = new THREE.Vector3(0, 1.7, 0);
+    this.playerVel = new THREE.Vector3();
+    this.companionPos = new THREE.Vector3(-2, 1.7, -2);
+    
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 0.4;
+  }
+
+  init(container: HTMLElement, difficulty: DifficultyLevel) {
+    this.container = container;
+    this.difficulty = difficulty;
+    
+    this.renderer.setSize(container.clientWidth, container.clientHeight);
+    container.appendChild(this.renderer.domElement);
+    
+    // Init audio
+    audioSystem.init();
+    
+    this.setupScene();
+    this.buildLevel();
+    this.setupLighting();
+    this.setupWeapon();
+    this.setupCompanion();
+    this.spawnEnemies();
+    this.setupControls();
+    this.setupResize();
+    
+    this.animate();
+  }
+
+  private setupScene() {
+    this.scene.background = new THREE.Color(0x0a0a0f);
+    this.scene.fog = new THREE.FogExp2(0x0a0a0f, 0.015);
+  }
+
+  private setupLighting() {
+    // Dim ambient
+    const ambient = new THREE.AmbientLight(0x1a1a2e, 0.3);
+    this.scene.add(ambient);
+    
+    // Moon light
+    const moon = new THREE.DirectionalLight(0x4466aa, 0.2);
+    moon.position.set(50, 80, 30);
+    moon.castShadow = true;
+    moon.shadow.mapSize.set(2048, 2048);
+    moon.shadow.camera.near = 0.5;
+    moon.shadow.camera.far = 200;
+    moon.shadow.camera.left = -50;
+    moon.shadow.camera.right = 50;
+    moon.shadow.camera.top = 50;
+    moon.shadow.camera.bottom = -50;
+    this.scene.add(moon);
+    
+    // Hanging lights (bare bulbs on wires)
+    const lightPositions = [
+      [5, 3.5, 5], [-5, 3.5, -5], [10, 3.2, -3], [-8, 3.5, 8],
+      [15, 3.5, 0], [0, 3.5, 12], [-12, 3.5, -10], [20, 3.5, 15],
+    ];
+    
+    lightPositions.forEach(([x, y, z]) => {
+      // Wire
+      const wireGeo = new THREE.CylinderGeometry(0.01, 0.01, 1, 4);
+      const wireMat = new THREE.MeshBasicMaterial({ color: 0x333333 });
+      const wire = new THREE.Mesh(wireGeo, wireMat);
+      wire.position.set(x, y + 0.5, z);
+      this.scene.add(wire);
+      
+      // Bulb
+      const bulbGeo = new THREE.SphereGeometry(0.08, 8, 8);
+      const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffaa44 });
+      const bulb = new THREE.Mesh(bulbGeo, bulbMat);
+      bulb.position.set(x, y, z);
+      this.scene.add(bulb);
+      
+      // Point light
+      const light = new THREE.PointLight(0xffaa44, 0.8, 12, 2);
+      light.position.set(x, y, z);
+      light.castShadow = true;
+      light.shadow.mapSize.set(256, 256);
+      this.scene.add(light);
+    });
+    
+    // Muzzle flash light (attached to camera)
+    this.muzzleFlash = new THREE.PointLight(0xffaa00, 0, 8, 2);
+    this.camera.add(this.muzzleFlash);
+    this.muzzleFlash.position.set(0.3, -0.2, -1);
+    this.scene.add(this.camera);
+  }
+
+  private buildLevel() {
+    // Ground - wet concrete
+    const groundGeo = new THREE.PlaneGeometry(100, 100);
+    const groundMat = new THREE.MeshStandardMaterial({ 
+      color: 0x2a2a2a, roughness: 0.9, metalness: 0.1 
+    });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    this.scene.add(ground);
+    this.colliders.push(new THREE.Box3().setFromObject(ground));
+    
+    // Panel buildings (Soviet blocks)
+    const buildingMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.95 });
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 1.0 });
+    const concreteMat = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.85 });
+    
+    // Building 1 - parking structure (low, wide)
+    this.createBuilding(-15, 0, -15, 12, 4, 10, buildingMat);
+    // Building 2 - tall apartment block (9 floors)
+    this.createBuilding(15, 0, -20, 10, 12, 8, buildingMat);
+    // Building 3 - another block
+    this.createBuilding(-20, 0, 15, 8, 9, 12, buildingMat);
+    // Building 4 - medium block
+    this.createBuilding(20, 0, 15, 10, 6, 10, buildingMat);
+    // Building 5 - distant tower
+    this.createBuilding(0, 0, -35, 8, 15, 8, buildingMat);
+    // Building 6 - ruins
+    this.createBuilding(-30, 0, -5, 6, 3, 6, darkMat);
+    
+    // Interior corridor walls
+    this.createWall(0, 0, -8, 20, 3.5, 0.3, darkMat);
+    this.createWall(-8, 0, 0, 0.3, 3.5, 16, darkMat);
+    this.createWall(8, 0, 5, 0.3, 3.5, 12, darkMat);
+    this.createWall(-3, 0, 8, 10, 3.5, 0.3, darkMat);
+    
+    // Concrete barriers / tank traps
+    for (let i = 0; i < 12; i++) {
+      const barrierGeo = new THREE.BoxGeometry(2, 1, 0.5);
+      const barrier = new THREE.Mesh(barrierGeo, concreteMat);
+      const angle = (i / 12) * Math.PI * 2;
+      barrier.position.set(
+        Math.cos(angle) * (8 + Math.random() * 5),
+        0.5,
+        Math.sin(angle) * (8 + Math.random() * 5)
+      );
+      barrier.rotation.y = angle + Math.PI / 2;
+      barrier.castShadow = true;
+      barrier.receiveShadow = true;
+      this.scene.add(barrier);
+      this.colliders.push(new THREE.Box3().setFromObject(barrier));
+      this.levelObjects.push(barrier);
+    }
+    
+    // Abandoned cars (simple boxes)
+    const carMat = new THREE.MeshStandardMaterial({ color: 0x2a3a2a, roughness: 0.7, metalness: 0.3 });
+    for (let i = 0; i < 4; i++) {
+      const carGroup = new THREE.Group();
+      const carBody = new THREE.Mesh(new THREE.BoxGeometry(2, 0.8, 4), carMat);
+      carBody.position.y = 0.6;
+      carGroup.add(carBody);
+      const carTop = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.6, 2), carMat);
+      carTop.position.y = 1.2;
+      carTop.position.z = -0.3;
+      carGroup.add(carTop);
+      
+      carGroup.position.set(
+        -10 + i * 8 + Math.random() * 3,
+        0,
+        -5 + Math.random() * 10
+      );
+      carGroup.rotation.y = Math.random() * 0.5 - 0.25;
+      carGroup.castShadow = true;
+      this.scene.add(carGroup);
+      
+      const carBox = new THREE.Box3().setFromObject(carGroup);
+      this.colliders.push(carBox);
+    }
+    
+    // Rubble/debris
+    for (let i = 0; i < 20; i++) {
+      const size = 0.2 + Math.random() * 0.6;
+      const rubbleGeo = new THREE.BoxGeometry(size, size * 0.5, size * 0.8);
+      const rubble = new THREE.Mesh(rubbleGeo, new THREE.MeshStandardMaterial({ 
+        color: new THREE.Color(0.15 + Math.random() * 0.1, 0.15 + Math.random() * 0.1, 0.15 + Math.random() * 0.1), roughness: 1.0 
+      }));
+      rubble.position.set(
+        Math.random() * 50 - 25,
+        size * 0.25,
+        Math.random() * 50 - 25
+      );
+      rubble.rotation.set(Math.random() * 0.3, Math.random() * Math.PI, Math.random() * 0.3);
+      rubble.castShadow = true;
+      this.scene.add(rubble);
+      if (size > 0.4) {
+        this.colliders.push(new THREE.Box3().setFromObject(rubble));
+      }
+    }
+    
+    // Pipes along walls
+    const pipeMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, metalness: 0.6, roughness: 0.4 });
+    for (let i = 0; i < 6; i++) {
+      const pipeGeo = new THREE.CylinderGeometry(0.05, 0.05, 8 + Math.random() * 4, 8);
+      const pipe = new THREE.Mesh(pipeGeo, pipeMat);
+      pipe.position.set(
+        -8 + Math.random() * 16,
+        2 + Math.random(),
+        -8 + Math.random() * 16
+      );
+      pipe.rotation.z = Math.PI / 2;
+      this.scene.add(pipe);
+    }
+    
+    // Barrels
+    const barrelMat = new THREE.MeshStandardMaterial({ color: 0x4a3a2a, roughness: 0.7 });
+    for (let i = 0; i < 6; i++) {
+      const barrelGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.9, 12);
+      const barrel = new THREE.Mesh(barrelGeo, barrelMat);
+      barrel.position.set(
+        Math.random() * 30 - 15,
+        0.45,
+        Math.random() * 30 - 15
+      );
+      barrel.castShadow = true;
+      this.scene.add(barrel);
+      this.colliders.push(new THREE.Box3().setFromObject(barrel));
+    }
+    
+    // Rain particles
+    this.createRain();
+    
+    // Puddles (reflective ground patches)
+    for (let i = 0; i < 15; i++) {
+      const puddleGeo = new THREE.CircleGeometry(0.5 + Math.random() * 2, 16);
+      const puddleMat = new THREE.MeshStandardMaterial({ 
+        color: 0x111122, roughness: 0.05, metalness: 0.9, transparent: true, opacity: 0.6 
+      });
+      const puddle = new THREE.Mesh(puddleGeo, puddleMat);
+      puddle.rotation.x = -Math.PI / 2;
+      puddle.position.set(Math.random() * 40 - 20, 0.01, Math.random() * 40 - 20);
+      this.scene.add(puddle);
+    }
+    
+    // Graffiti-like stains on walls (dark patches)
+    const stainMat = new THREE.MeshBasicMaterial({ color: 0x0a0a0a, transparent: true, opacity: 0.5 });
+    for (let i = 0; i < 8; i++) {
+      const stainGeo = new THREE.PlaneGeometry(1 + Math.random() * 2, 0.5 + Math.random());
+      const stain = new THREE.Mesh(stainGeo, stainMat);
+      stain.position.set(
+        Math.random() * 20 - 10,
+        1 + Math.random() * 2,
+        -7.8
+      );
+      this.scene.add(stain);
+    }
+  }
+
+  private createBuilding(x: number, y: number, z: number, w: number, h: number, d: number, mat: THREE.Material) {
+    const geo = new THREE.BoxGeometry(w, h, d);
+    const building = new THREE.Mesh(geo, mat);
+    building.position.set(x, y + h / 2, z);
+    building.castShadow = true;
+    building.receiveShadow = true;
+    this.scene.add(building);
+    this.colliders.push(new THREE.Box3().setFromObject(building));
+    this.levelObjects.push(building);
+    
+    // Windows (dark holes)
+    const windowMat = new THREE.MeshBasicMaterial({ color: 0x050510 });
+    const windowGeo = new THREE.PlaneGeometry(1, 1.2);
+    for (let wy = 2; wy < h - 1; wy += 3) {
+      for (let wx = -w/2 + 2; wx < w/2 - 1; wx += 2.5) {
+        // Front
+        const win1 = new THREE.Mesh(windowGeo, windowMat);
+        win1.position.set(x + wx, y + wy, z + d/2 + 0.01);
+        this.scene.add(win1);
+        // Back
+        const win2 = new THREE.Mesh(windowGeo, windowMat);
+        win2.position.set(x + wx, y + wy, z - d/2 - 0.01);
+        win2.rotation.y = Math.PI;
+        this.scene.add(win2);
+      }
+    }
+  }
+
+  private createWall(x: number, y: number, z: number, w: number, h: number, d: number, mat: THREE.Material) {
+    const geo = new THREE.BoxGeometry(w, h, d);
+    const wall = new THREE.Mesh(geo, mat);
+    wall.position.set(x, y + h / 2, z);
+    wall.castShadow = true;
+    wall.receiveShadow = true;
+    this.scene.add(wall);
+    this.colliders.push(new THREE.Box3().setFromObject(wall));
+    this.levelObjects.push(wall);
+  }
+
+  private createRain() {
+    const rainCount = 3000;
+    const rainGeo = new THREE.BufferGeometry();
+    const positions = new Float32Array(rainCount * 3);
+    
+    for (let i = 0; i < rainCount * 3; i += 3) {
+      positions[i] = Math.random() * 80 - 40;
+      positions[i + 1] = Math.random() * 30;
+      positions[i + 2] = Math.random() * 80 - 40;
+    }
+    
+    rainGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    
+    const rainMat = new THREE.PointsMaterial({ 
+      color: 0x8899aa, size: 0.05, transparent: true, opacity: 0.4 
+    });
+    const rain = new THREE.Points(rainGeo, rainMat);
+    rain.name = 'rain';
+    this.scene.add(rain);
+  }
+
+  private setupWeapon() {
+    this.currentWeapon = WEAPONS[0]; // ТТ
+    this.ammoInMag = this.currentWeapon.magSize;
+    
+    this.weaponMesh = new THREE.Group();
+    
+    // Simple pistol model
+    const bodyGeo = new THREE.BoxGeometry(0.04, 0.12, 0.22);
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, metalness: 0.8, roughness: 0.3 });
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    this.weaponMesh.add(body);
+    
+    // Barrel
+    const barrelGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.15, 8);
+    const barrel = new THREE.Mesh(barrelGeo, bodyMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.03, -0.15);
+    this.weaponMesh.add(barrel);
+    
+    // Grip
+    const gripGeo = new THREE.BoxGeometry(0.035, 0.1, 0.04);
+    const gripMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 });
+    const grip = new THREE.Mesh(gripGeo, gripMat);
+    grip.position.set(0, -0.1, 0.05);
+    grip.rotation.x = 0.2;
+    this.weaponMesh.add(grip);
+    
+    this.weaponMesh.position.set(0.25, -0.2, -0.4);
+    this.camera.add(this.weaponMesh);
+  }
+
+  switchWeapon(weapon: WeaponData) {
+    if (this.weaponMesh) {
+      this.camera.remove(this.weaponMesh);
+    }
+    this.currentWeapon = weapon;
+    this.ammoInMag = weapon.magSize;
+    this.isReloading = false;
+    this.setupWeaponVisual(weapon);
+  }
+
+  private setupWeaponVisual(weapon: WeaponData) {
+    this.weaponMesh = new THREE.Group();
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, metalness: 0.8, roughness: 0.3 });
+    
+    let bodyW = 0.04, bodyH = 0.12, bodyD = 0.22;
+    let posZ = -0.4, posY = -0.2, posX = 0.25;
+    
+    if (weapon.type === 'rifle' || weapon.type === 'smg') {
+      bodyW = 0.05; bodyH = 0.08; bodyD = 0.55;
+      posZ = -0.5; posY = -0.25; posX = 0.2;
+    } else if (weapon.type === 'shotgun') {
+      bodyW = 0.05; bodyH = 0.07; bodyD = 0.6;
+      posZ = -0.5; posY = -0.25; posX = 0.2;
+    } else if (weapon.type === 'sniper' || weapon.type === 'dmr') {
+      bodyW = 0.04; bodyH = 0.08; bodyD = 0.7;
+      posZ = -0.55; posY = -0.25; posX = 0.2;
+    } else if (weapon.type === 'mg') {
+      bodyW = 0.06; bodyH = 0.1; bodyD = 0.65;
+      posZ = -0.5; posY = -0.28; posX = 0.2;
+    } else if (weapon.type === 'melee') {
+      bodyW = 0.02; bodyH = 0.25; bodyD = 0.03;
+      posZ = -0.35; posY = -0.15; posX = 0.3;
+    }
+    
+    const bodyGeo = new THREE.BoxGeometry(bodyW, bodyH, bodyD);
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    this.weaponMesh.add(body);
+    
+    // Barrel
+    const barrelGeo = new THREE.CylinderGeometry(0.01, 0.01, bodyD * 0.6, 8);
+    const barrel = new THREE.Mesh(barrelGeo, bodyMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, bodyH * 0.3, -bodyD * 0.6);
+    this.weaponMesh.add(barrel);
+    
+    this.weaponMesh.position.set(posX, posY, posZ);
+    this.camera.add(this.weaponMesh);
+  }
+
+  private setupCompanion() {
+    this.companionMesh = new THREE.Group();
+    
+    // Body
+    const bodyGeo = new THREE.CapsuleGeometry(0.25, 0.8, 4, 8);
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x3a4a3a, roughness: 0.8 });
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    body.position.y = 0.9;
+    this.companionMesh.add(body);
+    
+    // Head
+    const headGeo = new THREE.SphereGeometry(0.15, 8, 8);
+    const headMat = new THREE.MeshStandardMaterial({ color: 0x5a5a4a, roughness: 0.7 });
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.position.y = 1.55;
+    this.companionMesh.add(head);
+    
+    // Weapon in hand
+    const gunGeo = new THREE.BoxGeometry(0.03, 0.03, 0.2);
+    const gunMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8 });
+    const gun = new THREE.Mesh(gunGeo, gunMat);
+    gun.position.set(0.3, 1.1, -0.2);
+    this.companionMesh.add(gun);
+    
+    this.companionMesh.position.copy(this.companionPos);
+    this.scene.add(this.companionMesh);
+  }
+
+  private spawnEnemies() {
+    const count = this.difficulty ? this.difficulty.enemyCount : 5;
+    
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2;
+      const dist = 15 + Math.random() * 20;
+      const x = Math.cos(angle) * dist;
+      const z = Math.sin(angle) * dist;
+      
+      const type = Math.random() < 0.6 ? 'crawler' : (Math.random() < 0.7 ? 'tall' : 'brute');
+      this.createEnemy(x, z, type);
+    }
+  }
+
+  private createEnemy(x: number, z: number, type: 'crawler' | 'tall' | 'brute') {
+    const group = new THREE.Group();
+    const hitZones = new Map<string, THREE.Mesh>();
+    
+    let bodyColor = 0x8a7a6a;
+    let scale = 1.0;
+    let health = 80;
+    let speed = 3;
+    
+    if (type === 'crawler') {
+      bodyColor = 0x9a8a7a;
+      scale = 0.7;
+      health = 50;
+      speed = 4.5;
+    } else if (type === 'brute') {
+      bodyColor = 0x5a4a3a;
+      scale = 1.5;
+      health = 200;
+      speed = 2;
+    }
+    
+    // Head
+    const headGeo = new THREE.SphereGeometry(0.15 * scale, 8, 8);
+    const headMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.9 });
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.position.y = type === 'crawler' ? 0.5 : 1.6 * scale;
+    head.name = 'head';
+    group.add(head);
+    hitZones.set('head', head);
+    
+    // Torso
+    const torsoGeo = new THREE.CapsuleGeometry(0.2 * scale, 0.5 * scale, 4, 8);
+    const torsoMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.9 });
+    const torso = new THREE.Mesh(torsoGeo, torsoMat);
+    torso.position.y = type === 'crawler' ? 0.3 : 1.1 * scale;
+    torso.name = 'chest';
+    group.add(torso);
+    hitZones.set('chest', torso);
+    
+    // Stomach
+    const stomachGeo = new THREE.CapsuleGeometry(0.15 * scale, 0.2 * scale, 4, 8);
+    const stomach = new THREE.Mesh(stomachGeo, torsoMat);
+    stomach.position.y = type === 'crawler' ? 0.15 : 0.7 * scale;
+    stomach.name = 'stomach';
+    group.add(stomach);
+    hitZones.set('stomach', stomach);
+    
+    // Arms
+    const armGeo = new THREE.CapsuleGeometry(0.06 * scale, 0.4 * scale, 4, 8);
+    const armMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.9 });
+    
+    const leftArm = new THREE.Mesh(armGeo, armMat);
+    leftArm.position.set(-0.3 * scale, type === 'crawler' ? 0.3 : 1.0 * scale, 0);
+    leftArm.name = 'arm';
+    group.add(leftArm);
+    hitZones.set('leftArm', leftArm);
+    
+    const rightArm = new THREE.Mesh(armGeo, armMat);
+    rightArm.position.set(0.3 * scale, type === 'crawler' ? 0.3 : 1.0 * scale, 0);
+    rightArm.name = 'arm';
+    group.add(rightArm);
+    hitZones.set('rightArm', rightArm);
+    
+    // Legs
+    const legGeo = new THREE.CapsuleGeometry(0.08 * scale, 0.5 * scale, 4, 8);
+    
+    const leftLeg = new THREE.Mesh(legGeo, armMat);
+    leftLeg.position.set(-0.12 * scale, type === 'crawler' ? 0.1 : 0.35 * scale, 0);
+    leftLeg.name = 'leg';
+    group.add(leftLeg);
+    hitZones.set('leftLeg', leftLeg);
+    
+    const rightLeg = new THREE.Mesh(legGeo, armMat);
+    rightLeg.position.set(0.12 * scale, type === 'crawler' ? 0.1 : 0.35 * scale, 0);
+    rightLeg.name = 'leg';
+    group.add(rightLeg);
+    hitZones.set('rightLeg', rightLeg);
+    
+    // Eyes (glowing)
+    const eyeGeo = new THREE.SphereGeometry(0.03 * scale, 6, 6);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff3300 });
+    const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+    leftEye.position.set(-0.05 * scale, type === 'crawler' ? 0.55 : 1.65 * scale, -0.12 * scale);
+    group.add(leftEye);
+    const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+    rightEye.position.set(0.05 * scale, type === 'crawler' ? 0.55 : 1.65 * scale, -0.12 * scale);
+    group.add(rightEye);
+    
+    group.position.set(x, 0, z);
+    this.scene.add(group);
+    
+    const healthMult = this.difficulty ? this.difficulty.healthMult : 1;
+    
+    const enemy: Enemy = {
+      group,
+      health: health * healthMult,
+      maxHealth: health * healthMult,
+      speed: speed,
+      position: new THREE.Vector3(x, 0, z),
+      velocity: new THREE.Vector3(),
+      alive: true,
+      type,
+      ragdoll: null,
+      hitZones,
+      lastAttackTime: 0,
+      state: 'idle',
+      legDamage: 0,
+      armDamage: 0,
+    };
+    
+    this.enemies.push(enemy);
+  }
+
+  private killEnemy(enemy: Enemy, hitDir: THREE.Vector3, force: number) {
+    enemy.alive = false;
+    enemy.state = 'dead';
+    
+    // Create ragdoll from body parts
+    enemy.ragdoll = [];
+    const parts = ['head', 'chest', 'stomach', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg'];
+    const masses = { head: 3, chest: 8, stomach: 5, leftArm: 2, rightArm: 2, leftLeg: 3, rightLeg: 3 };
+    
+    parts.forEach(partName => {
+      const mesh = enemy.hitZones.get(partName);
+      if (mesh) {
+        const worldPos = new THREE.Vector3();
+        mesh.getWorldPosition(worldPos);
+        
+        // Remove from group, add to scene
+        enemy.group.remove(mesh);
+        mesh.position.copy(worldPos);
+        this.scene.add(mesh);
+        
+        // Calculate velocity based on hit direction and force
+        const vel = hitDir.clone().multiplyScalar(force * (1 / masses[partName as keyof typeof masses]));
+        vel.y += 2 + Math.random() * 3; // upward kick
+        
+        enemy.ragdoll!.push({
+          mesh,
+          velocity: vel,
+          angularVel: new THREE.Vector3(
+            (Math.random() - 0.5) * 5,
+            (Math.random() - 0.5) * 5,
+            (Math.random() - 0.5) * 5
+          ),
+          mass: masses[partName as keyof typeof masses],
+          grounded: false,
+        });
+      }
+    });
+    
+    // Remove the group
+    this.scene.remove(enemy.group);
+    
+    // Death sound
+    audioSystem.playEnemyDeath();
+    
+    // Spawn loot
+    this.spawnLoot(enemy.position.clone());
+    
+    if (this.onKill) this.onKill();
+  }
+  
+  private spawnLoot(position: THREE.Vector3) {
+    // Random loot chance
+    const rareChance = this.difficulty ? this.difficulty.rareLootChance : 0.2;
+    const roll = Math.random();
+    
+    let lootType: 'weapon' | 'ammo' | 'medkit' = 'ammo';
+    let lootId = '9x19';
+    let lootName = 'Патроны';
+    let lootQty = 10;
+    
+    if (roll < 0.1) {
+      // Weapon drop (rare)
+      const possibleWeapons = WEAPONS.filter(w => w.type !== 'melee');
+      const weapon = possibleWeapons[Math.floor(Math.random() * possibleWeapons.length)];
+      lootType = 'weapon';
+      lootId = weapon.id;
+      lootName = weapon.name;
+      lootQty = 1;
+    } else if (roll < 0.3) {
+      // Medkit
+      lootType = 'medkit';
+      lootId = 'bandage';
+      lootName = 'Бинт';
+      lootQty = 1;
+    } else if (roll < 0.5) {
+      // Rare ammo
+      const rareAmmo = ['5.45x39', '7.62x39', '12ga', '7.62x54R'];
+      lootId = rareAmmo[Math.floor(Math.random() * rareAmmo.length)];
+      lootName = CALIBERS[lootId]?.name || lootId;
+      lootQty = Math.floor(5 + Math.random() * 15);
+    } else {
+      // Common ammo
+      const commonAmmo = ['9x19', '7.62x25'];
+      lootId = commonAmmo[Math.floor(Math.random() * commonAmmo.length)];
+      lootName = CALIBERS[lootId]?.name || lootId;
+      lootQty = Math.floor(10 + Math.random() * 20);
+    }
+    
+    // Create loot mesh
+    const group = new THREE.Group();
+    
+    // Glowing box
+    const boxGeo = new THREE.BoxGeometry(0.3, 0.15, 0.2);
+    const color = lootType === 'weapon' ? 0xff8800 : lootType === 'medkit' ? 0x00ff44 : 0xffcc00;
+    const boxMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8 });
+    const box = new THREE.Mesh(boxGeo, boxMat);
+    group.add(box);
+    
+    // Glow
+    const glowGeo = new THREE.SphereGeometry(0.25, 8, 8);
+    const glowMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.15 });
+    const glow = new THREE.Mesh(glowGeo, glowMat);
+    group.add(glow);
+    
+    group.position.copy(position);
+    group.position.y = 0.3;
+    this.scene.add(group);
+    
+    this.lootDrops.push({
+      mesh: group,
+      position: group.position.clone(),
+      type: lootType,
+      id: lootId,
+      name: lootName,
+      quantity: lootQty,
+      bobPhase: Math.random() * Math.PI * 2,
+    });
+  }
+  
+  private updateLoot(dt: number) {
+    const pickupDist = 2;
+    const time = Date.now() * 0.001;
+    
+    for (let i = this.lootDrops.length - 1; i >= 0; i--) {
+      const loot = this.lootDrops[i];
+      
+      // Bob animation
+      loot.mesh.position.y = 0.3 + Math.sin(time * 2 + loot.bobPhase) * 0.1;
+      loot.mesh.rotation.y += dt * 1.5;
+      
+      // Check pickup
+      const dist = this.playerPos.distanceTo(loot.position);
+      if (dist < pickupDist) {
+        // Pickup!
+        if (this.onLootPickup) {
+          this.onLootPickup({
+            type: loot.type,
+            id: loot.id,
+            name: loot.name,
+            quantity: loot.quantity,
+          });
+        }
+        
+        this.scene.remove(loot.mesh);
+        this.lootDrops.splice(i, 1);
+      }
+    }
+  }
+
+  private updateRagdolls(dt: number) {
+    const gravity = -15;
+    
+    this.enemies.forEach(enemy => {
+      if (!enemy.ragdoll) return;
+      
+      enemy.ragdoll.forEach(part => {
+        if (!part.grounded) {
+          // Apply gravity
+          part.velocity.y += gravity * dt;
+          
+          // Update position
+          part.mesh.position.add(part.velocity.clone().multiplyScalar(dt));
+          
+          // Apply rotation
+          part.mesh.rotation.x += part.angularVel.x * dt;
+          part.mesh.rotation.y += part.angularVel.y * dt;
+          part.mesh.rotation.z += part.angularVel.z * dt;
+          
+          // Ground collision
+          if (part.mesh.position.y < 0.1) {
+            part.mesh.position.y = 0.1;
+            part.velocity.y *= -0.3; // bounce
+            part.velocity.x *= 0.7; // friction
+            part.velocity.z *= 0.7;
+            part.angularVel.multiplyScalar(0.8);
+            
+            if (Math.abs(part.velocity.y) < 0.5) {
+              part.grounded = true;
+              part.velocity.set(0, 0, 0);
+              part.angularVel.set(0, 0, 0);
+            }
+          }
+          
+          // Collider collisions
+          this.colliders.forEach(box => {
+            const partBox = new THREE.Box3().setFromCenterAndSize(
+              part.mesh.position,
+              new THREE.Vector3(0.3, 0.3, 0.3)
+            );
+            if (box.intersectsBox(partBox)) {
+              part.velocity.multiplyScalar(-0.5);
+              part.mesh.position.add(part.velocity.clone().multiplyScalar(dt * 2));
+            }
+          });
+        }
+      });
+    });
+  }
+
+  private shoot() {
+    if (!this.currentWeapon || this.isReloading) return;
+    if (this.ammoInMag <= 0) {
+      this.reload();
+      return;
+    }
+    
+    const now = Date.now();
+    const fireInterval = 60000 / this.currentWeapon.fireRate;
+    if (now - this.lastShotTime < fireInterval) return;
+    
+    this.lastShotTime = now;
+    this.ammoInMag--;
+    
+    // Sound
+    audioSystem.playGunshot(this.currentWeapon.caliber);
+    
+    // Muzzle flash
+    if (this.muzzleFlash) {
+      this.muzzleFlash.intensity = 3;
+      setTimeout(() => { if (this.muzzleFlash) this.muzzleFlash.intensity = 0; }, 50);
+    }
+    
+    // Weapon recoil animation
+    if (this.weaponMesh) {
+      this.weaponMesh.rotation.x -= this.currentWeapon.recoil * 2;
+      this.weaponMesh.position.z += 0.02;
+      setTimeout(() => {
+        if (this.weaponMesh) {
+          this.weaponMesh.rotation.x *= 0.5;
+          this.weaponMesh.position.z -= 0.01;
+        }
+      }, 50);
+    }
+    
+    // Camera recoil
+    this.playerPitch += this.currentWeapon.recoil * 0.5;
+    
+    // Raycast for hit detection
+    const spread = this.currentWeapon.spread * (this.isSprinting ? 2 : 1);
+    const direction = new THREE.Vector3(
+      (Math.random() - 0.5) * spread,
+      (Math.random() - 0.5) * spread,
+      -1
+    );
+    direction.applyQuaternion(this.camera.quaternion);
+    direction.normalize();
+    
+    this.raycaster.set(this.camera.position, direction);
+    this.raycaster.far = this.currentWeapon.range;
+    
+    // Check enemy hits
+    let hitEnemy = false;
+    let closestDist = Infinity;
+    let closestZone = 'chest';
+    let closestEnemy: Enemy | null = null;
+    
+    for (const enemy of this.enemies) {
+      if (!enemy.alive) continue;
+      
+      for (const [zone, mesh] of enemy.hitZones) {
+        const worldPos = new THREE.Vector3();
+        mesh.getWorldPosition(worldPos);
+        const dist = this.camera.position.distanceTo(worldPos);
+        
+        if (dist < closestDist) {
+          const toEnemy = worldPos.clone().sub(this.camera.position).normalize();
+          const dot = direction.dot(toEnemy);
+          const hitRadius = zone === 'head' ? 0.2 : 0.35;
+          const angle = Math.acos(Math.min(1, dot));
+          
+          if (angle < hitRadius / dist && dist < this.currentWeapon!.range) {
+            closestDist = dist;
+            closestZone = zone.includes('Leg') || zone.includes('leg') ? 'leg' :
+                         zone.includes('Arm') || zone.includes('arm') ? 'arm' :
+                         zone === 'head' ? 'head' :
+                         zone === 'stomach' ? 'stomach' : 'chest';
+            closestEnemy = enemy;
+            hitEnemy = true;
+          }
+        }
+      }
+    }
+    
+    if (hitEnemy && closestEnemy) {
+      const zoneMult = HIT_ZONES[closestZone as keyof typeof HIT_ZONES] || 1.0;
+      const damage = this.currentWeapon.damage * zoneMult;
+      
+      closestEnemy.health -= damage;
+      
+      // Zone effects
+      if (closestZone === 'leg') {
+        closestEnemy.legDamage += 1;
+        closestEnemy.speed *= 0.7;
+      }
+      if (closestZone === 'arm') {
+        closestEnemy.armDamage += 1;
+      }
+      
+      // Hit marker callback
+      if (this.onHitMarker) this.onHitMarker(closestZone, damage);
+      
+      // Sound
+      if (closestZone === 'head') {
+        audioSystem.playHeadshot();
+      } else {
+        audioSystem.playHit();
+      }
+      
+      // Blood particles
+      this.spawnBlood(closestEnemy.group.position.clone().add(new THREE.Vector3(0, 1, 0)));
+      
+      // Kill check
+      if (closestEnemy.health <= 0) {
+        const hitDir = direction.clone();
+        const force = this.currentWeapon.damage * 0.3;
+        
+        if (closestZone === 'head') {
+          // Head shot - fly backward
+          hitDir.y = 0.5;
+          this.killEnemy(closestEnemy, hitDir, force * 2);
+        } else if (closestZone === 'leg') {
+          // Leg shot - fall to knees
+          this.killEnemy(closestEnemy, new THREE.Vector3(0, -1, 0).add(hitDir.clone().multiplyScalar(0.3)), force * 0.5);
+        } else {
+          this.killEnemy(closestEnemy, hitDir, force);
+        }
+      }
+    }
+    
+    // Create bullet trail
+    this.createBulletTrail(this.camera.position.clone(), direction);
+    
+    // Update state
+    if (this.onStateUpdate) {
+      this.onStateUpdate({ ammoInMag: this.ammoInMag });
+    }
+  }
+
+  private createBulletTrail(origin: THREE.Vector3, direction: THREE.Vector3) {
+    const end = origin.clone().add(direction.clone().multiplyScalar(this.currentWeapon?.range || 100));
+    const points = [origin, end];
+    const geo = new THREE.BufferGeometry().setFromPoints(points);
+    const mat = new THREE.LineBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.5 });
+    const line = new THREE.Line(geo, mat);
+    this.scene.add(line);
+    
+    setTimeout(() => {
+      this.scene.remove(line);
+      geo.dispose();
+      mat.dispose();
+    }, 100);
+  }
+
+  private spawnBlood(position: THREE.Vector3) {
+    for (let i = 0; i < 8; i++) {
+      const geo = new THREE.SphereGeometry(0.03, 4, 4);
+      const mat = new THREE.MeshBasicMaterial({ color: 0x880000 });
+      const particle = new THREE.Mesh(geo, mat);
+      particle.position.copy(position);
+      this.scene.add(particle);
+      
+      this.particles.push({
+        mesh: particle,
+        velocity: new THREE.Vector3(
+          (Math.random() - 0.5) * 3,
+          Math.random() * 2,
+          (Math.random() - 0.5) * 3
+        ),
+        life: 1.0,
+        maxLife: 1.0,
+      });
+    }
+  }
+
+  private reload() {
+    if (!this.currentWeapon || this.isReloading) return;
+    if (this.currentWeapon.type === 'melee') return;
+    
+    const caliber = this.currentWeapon.caliber;
+    const reserve = (this as any)._ammoReserve?.[caliber] || 0;
+    if (reserve <= 0 || this.ammoInMag >= this.currentWeapon.magSize) return;
+    
+    this.isReloading = true;
+    this.reloadStartTime = Date.now();
+    
+    setTimeout(() => {
+      if (!this.currentWeapon) return;
+      const needed = this.currentWeapon.magSize - this.ammoInMag;
+      const available = Math.min(needed, reserve);
+      this.ammoInMag += available;
+      if ((this as any)._ammoReserve) {
+        (this as any)._ammoReserve[caliber] -= available;
+      }
+      this.isReloading = false;
+      if (this.onStateUpdate) {
+        this.onStateUpdate({ ammoInMag: this.ammoInMag });
+      }
+    }, this.currentWeapon.reloadTime);
+  }
+
+  setAmmoReserve(reserve: Record<string, number>) {
+    (this as any)._ammoReserve = reserve;
+  }
+
+  private enemySpawnTimer = 0;
+  private waveNumber = 1;
+  private onWaveUpdate: ((wave: number, enemiesLeft: number) => void) | null = null;
+  
+  private updateEnemies(dt: number) {
+    const now = Date.now();
+    const damageMult = this.difficulty ? this.difficulty.damageMult : 1;
+    
+    // Count alive enemies
+    const aliveCount = this.enemies.filter(e => e.alive).length;
+    
+    // Wave system - spawn new enemies
+    this.enemySpawnTimer += dt;
+    if (aliveCount < 3 && this.enemySpawnTimer > 5) {
+      this.enemySpawnTimer = 0;
+      this.waveNumber++;
+      
+      // Spawn new wave
+      const spawnCount = Math.min(3 + Math.floor(this.waveNumber / 2), 8);
+      for (let i = 0; i < spawnCount; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 20 + Math.random() * 15;
+        const x = this.playerPos.x + Math.cos(angle) * dist;
+        const z = this.playerPos.z + Math.sin(angle) * dist;
+        const type = Math.random() < 0.5 ? 'crawler' : (Math.random() < 0.7 ? 'tall' : 'brute');
+        this.createEnemy(x, z, type);
+      }
+      
+      if (this.onWaveUpdate) {
+        this.onWaveUpdate(this.waveNumber, this.enemies.filter(e => e.alive).length);
+      }
+    }
+    
+    // Update wave info periodically
+    if (this.onWaveUpdate && Math.random() < 0.01) {
+      this.onWaveUpdate(this.waveNumber, aliveCount);
+    }
+    
+    this.enemies.forEach(enemy => {
+      if (!enemy.alive) return;
+      
+      const distToPlayer = enemy.position.distanceTo(this.playerPos);
+      const distToCompanion = enemy.position.distanceTo(this.companionPos);
+      
+      // AI state machine
+      if (distToPlayer < 30 || distToCompanion < 20) {
+        enemy.state = 'chase';
+      }
+      
+      if (enemy.state === 'chase') {
+        // Decide target - prefer closer one, but sometimes target companion
+        const target = (distToPlayer < distToCompanion || Math.random() > 0.3) 
+          ? this.playerPos : this.companionPos;
+        const dir = target.clone().sub(enemy.position).normalize();
+        dir.y = 0;
+        
+        // Speed affected by leg damage
+        const speedMult = Math.max(0.3, 1 - enemy.legDamage * 0.25);
+        
+        // Crawlers are faster but less accurate
+        const typeSpeedMult = enemy.type === 'crawler' ? 1.3 : enemy.type === 'brute' ? 0.7 : 1.0;
+        
+        // Strafe occasionally
+        const strafe = Math.sin(now * 0.002 + enemy.position.x) * 0.3;
+        const strafeDir = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(strafe);
+        
+        enemy.velocity.lerp(
+          dir.multiplyScalar(enemy.speed * speedMult * typeSpeedMult).add(strafeDir), 
+          0.08
+        );
+        enemy.position.add(enemy.velocity.clone().multiplyScalar(dt));
+        enemy.position.y = 0;
+        
+        enemy.group.position.copy(enemy.position);
+        
+        // Face target
+        enemy.group.lookAt(target.x, enemy.group.position.y, target.z);
+        
+        // Crawlers animate differently (low to ground)
+        if (enemy.type === 'crawler') {
+          enemy.group.position.y = Math.sin(now * 0.008) * 0.05;
+        }
+        
+        // Attack in melee range
+        const attackRange = enemy.type === 'brute' ? 2.5 : 1.8;
+        if (distToPlayer < attackRange || distToCompanion < attackRange) {
+          const attackCooldown = enemy.type === 'brute' ? 2000 : 1200;
+          if (now - enemy.lastAttackTime > attackCooldown) {
+            enemy.lastAttackTime = now;
+            const baseDmg = enemy.type === 'brute' ? 30 : (enemy.type === 'crawler' ? 12 : 15);
+            const dmg = baseDmg * damageMult;
+            
+            if (distToPlayer < attackRange && this.onDamage) {
+              this.onDamage(dmg);
+            }
+            if (distToCompanion < attackRange) {
+              this.companionHP -= dmg;
+              if (this.companionHP <= 0) {
+                this.companionHP = 0;
+                this.companionState = 'healing';
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  private updateCompanion(dt: number) {
+    if (!this.companionMesh) return;
+    
+    const distToPlayer = this.companionPos.distanceTo(this.playerPos);
+    
+    // Follow player
+    if (this.companionState === 'follow') {
+      if (distToPlayer > 5) {
+        const dir = this.playerPos.clone().sub(this.companionPos).normalize();
+        dir.y = 0;
+        this.companionPos.add(dir.multiplyScalar(4 * dt));
+      }
+      
+      // Check for nearby enemies to engage
+      let closestEnemy: Enemy | null = null;
+      let closestDist = 20;
+      
+      for (const enemy of this.enemies) {
+        if (!enemy.alive) continue;
+        const dist = enemy.position.distanceTo(this.companionPos);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestEnemy = enemy;
+        }
+      }
+      
+      if (closestEnemy) {
+        this.companionState = 'combat';
+        this.companionTarget = closestEnemy;
+      }
+    }
+    
+    // Combat
+    if (this.companionState === 'combat') {
+      if (this.companionTarget && this.companionTarget.alive) {
+        const dist = this.companionTarget.position.distanceTo(this.companionPos);
+        
+        // Move to cover distance
+        if (dist < 5) {
+          const away = this.companionPos.clone().sub(this.companionTarget.position).normalize();
+          this.companionPos.add(away.multiplyScalar(3 * dt));
+        } else if (dist > 15) {
+          const toward = this.companionTarget.position.clone().sub(this.companionPos).normalize();
+          this.companionPos.add(toward.multiplyScalar(3 * dt));
+        }
+        
+        // Shoot (burst fire - AI economy)
+        const now = Date.now();
+        if (now - this.companionLastShot > 500) {
+          this.companionLastShot = now;
+          
+          // Hit check with accuracy
+          const accuracy = this.difficulty ? this.difficulty.aiAccuracy : 0.7;
+          if (Math.random() < accuracy * 0.5) {
+            const damage = 20;
+            this.companionTarget.health -= damage;
+            
+            if (this.companionTarget.health <= 0) {
+              const dir = this.companionTarget.position.clone().sub(this.companionPos).normalize();
+              this.killEnemy(this.companionTarget, dir, 5);
+              this.companionTarget = null;
+              this.companionState = 'follow';
+            }
+          }
+        }
+        
+        // Face target
+        if (this.companionMesh && this.companionTarget) {
+          this.companionMesh.lookAt(this.companionTarget.position.x, 1, this.companionTarget.position.z);
+        }
+      } else {
+        this.companionState = 'follow';
+        this.companionTarget = null;
+      }
+    }
+    
+    // Self-heal when low HP
+    if (this.companionHP < this.companionMaxHP * 0.3 && this.companionState !== 'healing') {
+      this.companionState = 'healing';
+    }
+    
+    if (this.companionState === 'healing') {
+      // Move away from combat
+      const awayFromEnemies = new THREE.Vector3();
+      this.enemies.forEach(e => {
+        if (e.alive) {
+          awayFromEnemies.add(this.companionPos.clone().sub(e.position).normalize());
+        }
+      });
+      awayFromEnemies.normalize();
+      this.companionPos.add(awayFromEnemies.multiplyScalar(3 * dt));
+      
+      // Heal over time
+      this.companionHP = Math.min(this.companionMaxHP, this.companionHP + 5 * dt);
+      
+      if (this.companionHP > this.companionMaxHP * 0.7) {
+        this.companionState = 'follow';
+      }
+    }
+    
+    this.companionMesh.position.copy(this.companionPos);
+  }
+
+  private updateParticles(dt: number) {
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.velocity.y -= 10 * dt;
+      p.mesh.position.add(p.velocity.clone().multiplyScalar(dt));
+      p.life -= dt;
+      
+      if (p.mesh.position.y < 0) {
+        p.velocity.y = 0;
+        p.velocity.x *= 0.5;
+        p.velocity.z *= 0.5;
+      }
+      
+      if (p.life <= 0) {
+        this.scene.remove(p.mesh);
+        p.mesh.geometry.dispose();
+        this.particles.splice(i, 1);
+      }
+    }
+  }
+
+  private updateRain() {
+    const rain = this.scene.getObjectByName('rain') as THREE.Points;
+    if (!rain) return;
+    
+    const positions = rain.geometry.attributes.position.array as Float32Array;
+    for (let i = 0; i < positions.length; i += 3) {
+      positions[i + 1] -= 0.3;
+      if (positions[i + 1] < 0) {
+        positions[i + 1] = 25 + Math.random() * 5;
+        positions[i] = this.playerPos.x + Math.random() * 80 - 40;
+        positions[i + 2] = this.playerPos.z + Math.random() * 80 - 40;
+      }
+    }
+    rain.geometry.attributes.position.needsUpdate = true;
+  }
+
+  private setupControls() {
+    document.addEventListener('keydown', (e) => {
+      if (!this.isLocked) return;
+      switch (e.code) {
+        case 'KeyW': this.moveForward = true; break;
+        case 'KeyS': this.moveBackward = true; break;
+        case 'KeyA': this.moveLeft = true; break;
+        case 'KeyD': this.moveRight = true; break;
+        case 'ShiftLeft': this.isSprinting = true; break;
+        case 'Space':
+          if (this.playerOnGround) {
+            this.playerVel.y = 6;
+            this.playerOnGround = false;
+          }
+          break;
+        case 'KeyR': this.reload(); break;
+      }
+    });
+    
+    document.addEventListener('keyup', (e) => {
+      switch (e.code) {
+        case 'KeyW': this.moveForward = false; break;
+        case 'KeyS': this.moveBackward = false; break;
+        case 'KeyA': this.moveLeft = false; break;
+        case 'KeyD': this.moveRight = false; break;
+        case 'ShiftLeft': this.isSprinting = false; break;
+      }
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+      if (!this.isLocked) return;
+      this.playerYaw -= e.movementX * 0.002;
+      this.playerPitch -= e.movementY * 0.002;
+      this.playerPitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.playerPitch));
+    });
+    
+    document.addEventListener('mousedown', (e) => {
+      if (!this.isLocked) return;
+      if (e.button === 0) {
+        this.isShooting = true;
+        this.shoot();
+      }
+    });
+    
+    document.addEventListener('mouseup', (e) => {
+      if (e.button === 0) this.isShooting = false;
+    });
+    
+    // Pointer lock
+    this.renderer.domElement.addEventListener('click', () => {
+      this.renderer.domElement.requestPointerLock();
+    });
+    
+    document.addEventListener('pointerlockchange', () => {
+      this.isLocked = document.pointerLockElement === this.renderer.domElement;
+    });
+  }
+
+  private setupResize() {
+    window.addEventListener('resize', () => {
+      if (!this.container) return;
+      this.camera.aspect = this.container.clientWidth / this.container.clientHeight;
+      this.camera.updateProjectionMatrix();
+      this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+    });
+  }
+
+  private updatePlayer(dt: number) {
+    // Camera rotation
+    const euler = new THREE.Euler(this.playerPitch, this.playerYaw, 0, 'YXZ');
+    this.camera.quaternion.setFromEuler(euler);
+    
+    // Movement
+    const speed = this.isSprinting ? 7 : 4;
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, this.playerYaw, 0))
+    );
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, this.playerYaw, 0))
+    );
+    
+    const moveDir = new THREE.Vector3();
+    if (this.moveForward) moveDir.add(forward);
+    if (this.moveBackward) moveDir.sub(forward);
+    if (this.moveRight) moveDir.add(right);
+    if (this.moveLeft) moveDir.sub(right);
+    
+    if (moveDir.length() > 0) {
+      moveDir.normalize().multiplyScalar(speed);
+    }
+    
+    // Apply gravity
+    this.playerVel.y -= 15 * dt;
+    
+    // New position
+    const newPos = this.playerPos.clone();
+    newPos.x += moveDir.x * dt;
+    newPos.z += moveDir.z * dt;
+    newPos.y += this.playerVel.y * dt;
+    
+    // Ground collision
+    if (newPos.y < 1.7) {
+      newPos.y = 1.7;
+      this.playerVel.y = 0;
+      this.playerOnGround = true;
+    }
+    
+    // Simple world collision
+    const playerBox = new THREE.Box3().setFromCenterAndSize(
+      newPos, new THREE.Vector3(0.5, 1.7, 0.5)
+    );
+    
+    let collided = false;
+    for (const collider of this.colliders) {
+      if (playerBox.intersectsBox(collider)) {
+        collided = true;
+        break;
+      }
+    }
+    
+    if (!collided) {
+      this.playerPos.copy(newPos);
+    }
+    
+    this.camera.position.copy(this.playerPos);
+    
+    // Weapon sway
+    if (this.weaponMesh) {
+      const targetRotX = this.moveForward || this.moveBackward || this.moveLeft || this.moveRight 
+        ? Math.sin(Date.now() * 0.005) * 0.01 : 0;
+      this.weaponMesh.rotation.x += (targetRotX - this.weaponMesh.rotation.x) * 0.1;
+      
+      // Return from recoil
+      this.weaponMesh.rotation.x *= 0.9;
+      this.weaponMesh.position.z += (-0.4 - this.weaponMesh.position.z) * 0.1;
+    }
+    
+    // Auto-fire for automatic weapons
+    if (this.isShooting && this.currentWeapon?.automatic) {
+      this.shoot();
+    }
+  }
+
+  private animate() {
+    this.animationId = requestAnimationFrame(() => this.animate());
+    
+    const dt = Math.min(this.clock.getDelta(), 0.05);
+    
+    this.updatePlayer(dt);
+    this.updateEnemies(dt);
+    this.updateCompanion(dt);
+    this.updateRagdolls(dt);
+    this.updateParticles(dt);
+    this.updateLoot(dt);
+    this.updateRain();
+    
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  // Public API
+  setCallbacks(callbacks: {
+    onStateUpdate?: (state: Partial<GameState>) => void;
+    onHitMarker?: (zone: string, damage: number) => void;
+    onKill?: () => void;
+    onDamage?: (amount: number) => void;
+    onLootPickup?: (loot: { type: string; id: string; name: string; quantity: number }) => void;
+    onWaveUpdate?: (wave: number, enemiesLeft: number) => void;
+  }) {
+    this.onStateUpdate = callbacks.onStateUpdate || null;
+    this.onHitMarker = callbacks.onHitMarker || null;
+    this.onKill = callbacks.onKill || null;
+    this.onDamage = callbacks.onDamage || null;
+    this.onLootPickup = callbacks.onLootPickup || null;
+    this.onWaveUpdate = callbacks.onWaveUpdate || null;
+  }
+
+  getPlayerPos(): THREE.Vector3 {
+    return this.playerPos.clone();
+  }
+
+  getCompanionHP(): number {
+    return this.companionHP;
+  }
+
+  getAmmoInMag(): number {
+    return this.ammoInMag;
+  }
+
+  setAmmoInMag(amount: number) {
+    this.ammoInMag = amount;
+  }
+
+  getCurrentWeapon(): WeaponData | null {
+    return this.currentWeapon;
+  }
+
+  destroy() {
+    cancelAnimationFrame(this.animationId);
+    if (this.container && this.renderer.domElement.parentElement) {
+      this.container.removeChild(this.renderer.domElement);
+    }
+    this.renderer.dispose();
+  }
+}
