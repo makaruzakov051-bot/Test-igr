@@ -126,7 +126,7 @@ export class GameEngine {
 
   constructor() {
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
+    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 300);
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     this.clock = new THREE.Clock();
     this.raycaster = new THREE.Raycaster();
@@ -166,7 +166,7 @@ export class GameEngine {
 
   private setupScene() {
     this.scene.background = new THREE.Color(0x1a1a2f);
-    this.scene.fog = new THREE.FogExp2(0x1a1a2f, 0.008);
+    this.scene.fog = new THREE.FogExp2(0x1a1a2f, 0.005); // Less fog for bigger map
   }
 
   private flashlight: THREE.SpotLight | null = null;
@@ -206,11 +206,23 @@ export class GameEngine {
     playerLight.position.set(0, 0, 0);
     this.camera.add(playerLight);
     
-    // Hanging lights (bare bulbs on wires) — brighter
+    // Hanging lights (bare bulbs on wires) — spread across large map
     const lightPositions = [
+      // Central area
       [5, 3.5, 5], [-5, 3.5, -5], [10, 3.2, -3], [-8, 3.5, 8],
       [15, 3.5, 0], [0, 3.5, 12], [-12, 3.5, -10], [20, 3.5, 15],
       [-3, 3.5, 3], [7, 3.5, -7],
+      // North
+      [0, 3.5, -40], [-15, 3.5, -45], [20, 3.5, -50],
+      // East
+      [40, 3.5, 0], [50, 3.5, -15], [45, 3.5, 20],
+      // West
+      [-40, 3.5, 0], [-50, 3.5, -15], [-45, 3.5, 25],
+      // South
+      [0, 3.5, 45], [-20, 3.5, 50], [20, 3.5, 50],
+      // Far areas
+      [60, 3.5, 0], [-60, 3.5, -30], [0, 3.5, -60],
+      [30, 3.5, 30], [-30, 3.5, -30],
     ];
     
     lightPositions.forEach(([x, y, z]) => {
@@ -249,8 +261,8 @@ export class GameEngine {
   }
 
   private buildLevel() {
-    // Ground - wet concrete
-    const groundGeo = new THREE.PlaneGeometry(100, 100);
+    // Ground - wet concrete (200x200 map)
+    const groundGeo = new THREE.PlaneGeometry(200, 200);
     const groundMat = new THREE.MeshStandardMaterial({ 
       color: 0x3a3a3a, roughness: 0.85, metalness: 0.1 
     });
@@ -260,11 +272,12 @@ export class GameEngine {
     this.scene.add(ground);
     // Don't add ground to colliders — it's flat, handled by Y check
     
-    // Panel buildings (Soviet blocks)
+    // Panel buildings (Soviet blocks) - LARGE MAP (200x200)
     const buildingMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.95 });
     const darkMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 1.0 });
     const concreteMat = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.85 });
     
+    // === CENTRAL DISTRICT (near spawn) ===
     // Building 1 - parking structure (low, wide)
     this.createBuilding(-15, 0, -15, 12, 4, 10, buildingMat);
     // Building 2 - tall apartment block (9 floors)
@@ -273,29 +286,79 @@ export class GameEngine {
     this.createBuilding(-20, 0, 15, 8, 9, 12, buildingMat);
     // Building 4 - medium block
     this.createBuilding(20, 0, 15, 10, 6, 10, buildingMat);
-    // Building 5 - distant tower
-    this.createBuilding(0, 0, -35, 8, 15, 8, buildingMat);
-    // Building 6 - ruins
-    this.createBuilding(-30, 0, -5, 6, 3, 6, darkMat);
     
-    // Interior corridor walls
+    // === NORTH DISTRICT ===
+    // Building 5 - distant tower
+    this.createBuilding(0, 0, -50, 8, 15, 8, buildingMat);
+    // Building 6 - ruins
+    this.createBuilding(-40, 0, -30, 6, 3, 6, darkMat);
+    // Building 7 - apartment block
+    this.createBuilding(35, 0, -45, 10, 10, 10, buildingMat);
+    // Building 8 - small house
+    this.createBuilding(-30, 0, -50, 6, 4, 6, buildingMat);
+    
+    // === EAST DISTRICT ===
+    // Building 9 - factory
+    this.createBuilding(50, 0, -10, 15, 6, 12, buildingMat);
+    // Building 10 - warehouse
+    this.createBuilding(45, 0, 20, 12, 5, 8, buildingMat);
+    // Building 11 - tower block
+    this.createBuilding(55, 0, -35, 8, 12, 8, buildingMat);
+    
+    // === WEST DISTRICT ===
+    // Building 12 - apartment complex
+    this.createBuilding(-50, 0, -10, 10, 8, 10, buildingMat);
+    // Building 13 - low buildings
+    this.createBuilding(-45, 0, 25, 8, 4, 12, buildingMat);
+    // Building 14 - ruins
+    this.createBuilding(-55, 0, 0, 6, 2, 6, darkMat);
+    
+    // === SOUTH DISTRICT ===
+    // Building 15 - large block
+    this.createBuilding(0, 0, 50, 12, 10, 10, buildingMat);
+    // Building 16 - twin towers
+    this.createBuilding(-25, 0, 55, 8, 14, 8, buildingMat);
+    this.createBuilding(25, 0, 55, 8, 14, 8, buildingMat);
+    // Building 17 - garage
+    this.createBuilding(0, 0, 40, 10, 3, 6, buildingMat);
+    
+    // === FAR DISTRICTS ===
+    // Building 18-20 - distant blocks
+    this.createBuilding(70, 0, 0, 10, 8, 10, buildingMat);
+    this.createBuilding(-70, 0, -40, 8, 6, 8, buildingMat);
+    this.createBuilding(0, 0, -70, 10, 10, 10, buildingMat);
+    
+    // Interior corridor walls and fences — create streets and alleys
+    // Central area walls
     this.createWall(0, 0, -8, 20, 3.5, 0.3, darkMat);
     this.createWall(-8, 0, 0, 0.3, 3.5, 16, darkMat);
     this.createWall(8, 0, 5, 0.3, 3.5, 12, darkMat);
     this.createWall(-3, 0, 8, 10, 3.5, 0.3, darkMat);
     
-    // Concrete barriers / tank traps — keep away from spawn (0,0,0)
-    for (let i = 0; i < 12; i++) {
+    // Street dividers — create distinct areas
+    this.createWall(30, 0, 0, 0.3, 3, 40, concreteMat); // east-west divider
+    this.createWall(-30, 0, 0, 0.3, 3, 40, concreteMat); // west side
+    this.createWall(0, 0, 30, 60, 3, 0.3, concreteMat); // north-south divider
+    this.createWall(0, 0, -30, 60, 3, 0.3, concreteMat); // south side
+    
+    // Alley walls
+    this.createWall(10, 0, -35, 0.3, 3, 10, darkMat);
+    this.createWall(-10, 0, 35, 0.3, 3, 10, darkMat);
+    this.createWall(40, 0, -20, 15, 3, 0.3, concreteMat);
+    this.createWall(-40, 0, 20, 15, 3, 0.3, concreteMat);
+    
+    // Concrete barriers / tank traps — spread across large map
+    for (let i = 0; i < 30; i++) {
       const barrierGeo = new THREE.BoxGeometry(2, 1, 0.5);
       const barrier = new THREE.Mesh(barrierGeo, concreteMat);
-      const angle = (i / 12) * Math.PI * 2;
-      const dist = 10 + Math.random() * 5; // min 10 units from center
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 8 + Math.random() * 60; // spread across map
       barrier.position.set(
         Math.cos(angle) * dist,
         0.5,
         Math.sin(angle) * dist
       );
-      barrier.rotation.y = angle + Math.PI / 2;
+      barrier.rotation.y = Math.random() * Math.PI;
       barrier.castShadow = true;
       barrier.receiveShadow = true;
       this.scene.add(barrier);
@@ -303,9 +366,12 @@ export class GameEngine {
       this.levelObjects.push(barrier);
     }
     
-    // Abandoned cars (simple boxes)
-    const carMat = new THREE.MeshStandardMaterial({ color: 0x2a3a2a, roughness: 0.7, metalness: 0.3 });
-    for (let i = 0; i < 4; i++) {
+    // Abandoned cars — spread across the map
+    const carColors = [0x2a3a2a, 0x3a2a2a, 0x2a2a3a, 0x3a3a2a, 0x4a3a2a];
+    for (let i = 0; i < 15; i++) {
+      const carMat = new THREE.MeshStandardMaterial({ 
+        color: carColors[i % carColors.length], roughness: 0.7, metalness: 0.3 
+      });
       const carGroup = new THREE.Group();
       const carBody = new THREE.Mesh(new THREE.BoxGeometry(2, 0.8, 4), carMat);
       carBody.position.y = 0.6;
@@ -315,12 +381,14 @@ export class GameEngine {
       carTop.position.z = -0.3;
       carGroup.add(carTop);
       
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 10 + Math.random() * 50;
       carGroup.position.set(
-        -10 + i * 8 + Math.random() * 3,
+        Math.cos(angle) * dist,
         0,
-        -5 + Math.random() * 10
+        Math.sin(angle) * dist
       );
-      carGroup.rotation.y = Math.random() * 0.5 - 0.25;
+      carGroup.rotation.y = Math.random() * Math.PI * 2;
       carGroup.castShadow = true;
       this.scene.add(carGroup);
       
@@ -328,22 +396,24 @@ export class GameEngine {
       this.colliders.push(carBox);
     }
     
-    // Rubble/debris
-    for (let i = 0; i < 20; i++) {
-      const size = 0.2 + Math.random() * 0.6;
+    // Rubble/debris — spread across large map
+    for (let i = 0; i < 50; i++) {
+      const size = 0.2 + Math.random() * 0.8;
       const rubbleGeo = new THREE.BoxGeometry(size, size * 0.5, size * 0.8);
       const rubble = new THREE.Mesh(rubbleGeo, new THREE.MeshStandardMaterial({ 
         color: new THREE.Color(0.15 + Math.random() * 0.1, 0.15 + Math.random() * 0.1, 0.15 + Math.random() * 0.1), roughness: 1.0 
       }));
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.random() * 80;
       rubble.position.set(
-        Math.random() * 50 - 25,
+        Math.cos(angle) * dist,
         size * 0.25,
-        Math.random() * 50 - 25
+        Math.sin(angle) * dist
       );
       rubble.rotation.set(Math.random() * 0.3, Math.random() * Math.PI, Math.random() * 0.3);
       rubble.castShadow = true;
       this.scene.add(rubble);
-      if (size > 0.4) {
+      if (size > 0.5) {
         this.colliders.push(new THREE.Box3().setFromObject(rubble));
       }
     }
@@ -362,15 +432,18 @@ export class GameEngine {
       this.scene.add(pipe);
     }
     
-    // Barrels
+    // Barrels — spread across map
     const barrelMat = new THREE.MeshStandardMaterial({ color: 0x4a3a2a, roughness: 0.7 });
-    for (let i = 0; i < 6; i++) {
+    const barrelMat2 = new THREE.MeshStandardMaterial({ color: 0x2a4a3a, roughness: 0.7 });
+    for (let i = 0; i < 20; i++) {
       const barrelGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.9, 12);
-      const barrel = new THREE.Mesh(barrelGeo, barrelMat);
+      const barrel = new THREE.Mesh(barrelGeo, Math.random() > 0.5 ? barrelMat : barrelMat2);
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 5 + Math.random() * 70;
       barrel.position.set(
-        Math.random() * 30 - 15,
+        Math.cos(angle) * dist,
         0.45,
-        Math.random() * 30 - 15
+        Math.sin(angle) * dist
       );
       barrel.castShadow = true;
       this.scene.add(barrel);
@@ -380,15 +453,17 @@ export class GameEngine {
     // Rain particles
     this.createRain();
     
-    // Puddles (reflective ground patches)
-    for (let i = 0; i < 15; i++) {
-      const puddleGeo = new THREE.CircleGeometry(0.5 + Math.random() * 2, 16);
+    // Puddles (reflective ground patches) — spread across map
+    for (let i = 0; i < 40; i++) {
+      const puddleGeo = new THREE.CircleGeometry(0.5 + Math.random() * 2.5, 16);
       const puddleMat = new THREE.MeshStandardMaterial({ 
         color: 0x111122, roughness: 0.05, metalness: 0.9, transparent: true, opacity: 0.6 
       });
       const puddle = new THREE.Mesh(puddleGeo, puddleMat);
       puddle.rotation.x = -Math.PI / 2;
-      puddle.position.set(Math.random() * 40 - 20, 0.01, Math.random() * 40 - 20);
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.random() * 80;
+      puddle.position.set(Math.cos(angle) * dist, 0.01, Math.sin(angle) * dist);
       this.scene.add(puddle);
     }
     
@@ -579,7 +654,7 @@ export class GameEngine {
     
     for (let i = 0; i < count; i++) {
       const angle = (i / count) * Math.PI * 2;
-      const dist = 15 + Math.random() * 20;
+      const dist = 20 + Math.random() * 40; // Further spawn for bigger map
       const x = Math.cos(angle) * dist;
       const z = Math.sin(angle) * dist;
       
@@ -595,18 +670,18 @@ export class GameEngine {
     let bodyColor = 0x8a7a6a;
     let scale = 1.0;
     let health = 80;
-    let speed = 3;
+    let speed = 4; // Faster for bigger map
     
     if (type === 'crawler') {
       bodyColor = 0x9a8a7a;
       scale = 0.7;
       health = 50;
-      speed = 4.5;
+      speed = 6; // Very fast
     } else if (type === 'brute') {
       bodyColor = 0x5a4a3a;
       scale = 1.5;
       health = 200;
-      speed = 2;
+      speed = 3; // Slow but tough
     }
     
     // Head
@@ -792,18 +867,23 @@ export class GameEngine {
     // Create loot mesh
     const group = new THREE.Group();
     
-    // Glowing box
-    const boxGeo = new THREE.BoxGeometry(0.3, 0.15, 0.2);
+    // Glowing box — bigger and brighter
+    const boxGeo = new THREE.BoxGeometry(0.4, 0.2, 0.3);
     const color = lootType === 'weapon' ? 0xff8800 : lootType === 'medkit' ? 0x00ff44 : 0xffcc00;
-    const boxMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8 });
+    const boxMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 });
     const box = new THREE.Mesh(boxGeo, boxMat);
     group.add(box);
     
-    // Glow
-    const glowGeo = new THREE.SphereGeometry(0.25, 8, 8);
-    const glowMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.15 });
+    // Glow — bigger
+    const glowGeo = new THREE.SphereGeometry(0.4, 8, 8);
+    const glowMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.25 });
     const glow = new THREE.Mesh(glowGeo, glowMat);
     group.add(glow);
+    
+    // Point light for visibility
+    const lootLight = new THREE.PointLight(color, 0.5, 5, 2);
+    lootLight.position.y = 0.3;
+    group.add(lootLight);
     
     group.position.copy(position);
     group.position.y = 0.3;
@@ -821,7 +901,7 @@ export class GameEngine {
   }
   
   private updateLoot(dt: number) {
-    const pickupDist = 2;
+    const pickupDist = 2.5; // Slightly larger pickup range
     const time = Date.now() * 0.001;
     
     for (let i = this.lootDrops.length - 1; i >= 0; i--) {
@@ -1126,7 +1206,7 @@ export class GameEngine {
       const spawnCount = Math.min(3 + Math.floor(this.waveNumber / 2), 8);
       for (let i = 0; i < spawnCount; i++) {
         const angle = Math.random() * Math.PI * 2;
-        const dist = 20 + Math.random() * 15;
+        const dist = 30 + Math.random() * 30; // Further spawn for bigger map
         const x = this.playerPos.x + Math.cos(angle) * dist;
         const z = this.playerPos.z + Math.sin(angle) * dist;
         const type = Math.random() < 0.5 ? 'crawler' : (Math.random() < 0.7 ? 'tall' : 'brute');
@@ -1150,7 +1230,7 @@ export class GameEngine {
       const distToCompanion = enemy.position.distanceTo(this.companionPos);
       
       // AI state machine
-      if (distToPlayer < 30 || distToCompanion < 20) {
+      if (distToPlayer < 50 || distToCompanion < 30) {
         enemy.state = 'chase';
       }
       
@@ -1479,7 +1559,7 @@ export class GameEngine {
     this.camera.quaternion.setFromEuler(euler);
     
     // Movement
-    const speed = this.isSprinting ? 7 : 4;
+    const speed = this.isSprinting ? 10 : 5; // Faster for bigger map
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(
       new THREE.Quaternion().setFromEuler(new THREE.Euler(0, this.playerYaw, 0))
     );

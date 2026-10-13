@@ -380,10 +380,11 @@ function HUD({ state, hitMarkers, waveInfo, isLocked }: { state: GameState; hitM
 }
 
 // ============ INVENTORY ============
-function Inventory({ state, onClose, onEquipWeapon }: { 
+function Inventory({ state, onClose, onEquipWeapon, onUseItem }: { 
   state: GameState; 
   onClose: () => void; 
   onEquipWeapon: (weapon: WeaponData) => void;
+  onUseItem: (item: InventoryItem) => void;
 }) {
   const gridCells = [];
   const { w, h } = state.inventorySize;
@@ -399,20 +400,20 @@ function Inventory({ state, onClose, onEquipWeapon }: {
       gridCells.push(
         <div 
           key={`${x}-${y}`}
-          className={`w-10 h-10 border border-gray-800 flex items-center justify-center text-xs
+          className={`w-12 h-12 border border-gray-800 flex items-center justify-center text-xs
             ${item ? 'bg-gray-800/80' : 'bg-gray-900/40'}
             ${isOrigin ? 'border-gray-600' : ''}
           `}
           title={item ? `${item.name} x${item.quantity}` : ''}
         >
           {isOrigin && (
-            <span className={`text-center leading-tight ${
+            <span className={`text-center leading-tight font-bold ${
               item?.type === 'weapon' ? 'text-orange-400' :
               item?.type === 'ammo' ? 'text-yellow-400' :
               item?.type === 'medkit' ? 'text-green-400' :
               'text-gray-400'
             }`}>
-              {item?.name?.substring(0, 4)}
+              {item?.name?.substring(0, 3)}
             </span>
           )}
         </div>
@@ -421,60 +422,95 @@ function Inventory({ state, onClose, onEquipWeapon }: {
   }
   
   return (
-    <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-40">
-      <div className="bg-gray-900 border border-gray-700 p-6 max-w-2xl">
+    <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-40 pointer-events-auto">
+      <div className="bg-gray-900 border-2 border-gray-600 p-6 max-w-3xl w-full mx-4 shadow-2xl">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-xl text-gray-300">ИНВЕНТАРЬ</h3>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl">✕</button>
+          <h3 className="text-2xl text-gray-300 font-bold tracking-wider">ИНВЕНТАРЬ</h3>
+          <button 
+            onClick={onClose} 
+            className="text-gray-500 hover:text-gray-300 text-2xl cursor-pointer w-8 h-8 flex items-center justify-center"
+          >
+            ✕
+          </button>
         </div>
         
         <div className="flex gap-6">
           {/* Grid */}
           <div>
-            <div className="text-gray-600 text-xs mb-2">Сетка ({w}x{h})</div>
-            <div className="grid gap-0" style={{ gridTemplateColumns: `repeat(${w}, 2.5rem)` }}>
+            <div className="text-gray-500 text-xs mb-2 uppercase tracking-wider">Сетка ({w}x{h})</div>
+            <div className="grid gap-0 border border-gray-700" style={{ gridTemplateColumns: `repeat(${w}, 3rem)` }}>
               {gridCells}
             </div>
           </div>
           
           {/* Item list */}
-          <div className="flex-1 max-h-64 overflow-y-auto">
-            <div className="text-gray-600 text-xs mb-2">Предметы</div>
-            <div className="space-y-1">
-              {state.inventory.map((item, i) => (
-                <div key={i} className="flex items-center justify-between p-2 bg-gray-800/50 border border-gray-800 hover:border-gray-600">
-                  <div>
-                    <span className={`text-sm ${
-                      item.type === 'weapon' ? 'text-orange-400' :
-                      item.type === 'ammo' ? 'text-yellow-400' :
-                      item.type === 'medkit' ? 'text-green-400' :
-                      'text-gray-400'
-                    }`}>
-                      {item.name}
-                    </span>
-                    <span className="text-gray-600 text-xs ml-2">x{item.quantity}</span>
+          <div className="flex-1 max-h-80 overflow-y-auto">
+            <div className="text-gray-500 text-xs mb-2 uppercase tracking-wider">Предметы</div>
+            <div className="space-y-2">
+              {state.inventory.length === 0 ? (
+                <div className="text-gray-600 text-sm p-4 text-center">Инвентарь пуст</div>
+              ) : (
+                state.inventory.map((item, i) => (
+                  <div key={i} className="flex items-center justify-between p-3 bg-gray-800/50 border border-gray-700 hover:border-gray-500 transition-colors">
+                    <div className="flex-1">
+                      <div className={`text-sm font-bold ${
+                        item.type === 'weapon' ? 'text-orange-400' :
+                        item.type === 'ammo' ? 'text-yellow-400' :
+                        item.type === 'medkit' ? 'text-green-400' :
+                        'text-blue-400'
+                      }`}>
+                        {item.name}
+                      </div>
+                      <div className="text-gray-600 text-xs mt-0.5">
+                        {item.type === 'weapon' && `${WEAPONS.find(w => w.id === item.id)?.caliber || ''}`}
+                        {item.type === 'ammo' && `Патроны`}
+                        {item.type === 'medkit' && `Лечение`}
+                        {item.type === 'attachment' && `Модификация`}
+                        {item.quantity > 1 && ` • x${item.quantity}`}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      {item.type === 'weapon' && (
+                        <button 
+                          onClick={() => {
+                            const weapon = WEAPONS.find(w => w.id === item.id);
+                            if (weapon) onEquipWeapon(weapon);
+                          }}
+                          className="text-xs px-3 py-1.5 bg-orange-900/50 text-orange-300 hover:bg-orange-800 border border-orange-700 cursor-pointer transition-colors"
+                        >
+                          Экипировать
+                        </button>
+                      )}
+                      {item.type === 'medkit' && (
+                        <button 
+                          onClick={() => onUseItem(item)}
+                          className="text-xs px-3 py-1.5 bg-green-900/50 text-green-300 hover:bg-green-800 border border-green-700 cursor-pointer transition-colors"
+                        >
+                          Использовать
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  {item.type === 'weapon' && (
-                    <button 
-                      onClick={() => {
-                        const weapon = WEAPONS.find(w => w.id === item.id);
-                        if (weapon) onEquipWeapon(weapon);
-                      }}
-                      className="text-xs px-2 py-1 bg-gray-700 text-gray-300 hover:bg-gray-600"
-                    >
-                      Взять
-                    </button>
-                  )}
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>
         
-        {/* Money */}
-        <div className="mt-4 pt-3 border-t border-gray-800 flex justify-between">
-          <span className="text-gray-500 text-sm">Деньги:</span>
-          <span className="text-yellow-500 font-bold">{state.money} ₽</span>
+        {/* Money and info */}
+        <div className="mt-4 pt-3 border-t border-gray-700 flex justify-between items-center">
+          <div className="text-gray-500 text-sm">
+            Текущее оружие: <span className="text-orange-400">{state.currentWeapon?.name || 'Нет'}</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-gray-500 text-sm">Баланс:</span>
+            <span className="text-yellow-500 font-bold text-lg">{state.money} ₽</span>
+          </div>
+        </div>
+        
+        {/* Controls hint */}
+        <div className="mt-3 text-gray-600 text-xs text-center">
+          [I] или [Esc] — закрыть • Кликните на предмет для действия
         </div>
       </div>
     </div>
@@ -524,13 +560,13 @@ function Shop({ state, onClose, onBuy }: {
   const priceMult = state.difficulty?.priceMult || 1;
   
   return (
-    <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-40">
-      <div className="bg-gray-900 border border-gray-700 p-6 max-w-lg w-full">
+    <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-40 pointer-events-auto">
+      <div className="bg-gray-900 border-2 border-gray-600 p-6 max-w-lg w-full mx-4 shadow-2xl">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-xl text-gray-300">МАГАЗИН</h3>
+          <h3 className="text-2xl text-gray-300 font-bold tracking-wider">МАГАЗИН</h3>
           <div className="flex items-center gap-4">
-            <span className="text-yellow-500 font-bold">{state.money} ₽</span>
-            <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl">✕</button>
+            <span className="text-yellow-500 font-bold text-lg">{state.money} ₽</span>
+            <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-2xl cursor-pointer w-8 h-8 flex items-center justify-center">✕</button>
           </div>
         </div>
         
@@ -540,9 +576,9 @@ function Shop({ state, onClose, onBuy }: {
             const canAfford = state.money >= price;
             
             return (
-              <div key={i} className="flex items-center justify-between p-3 bg-gray-800/50 border border-gray-800 hover:border-gray-600">
+              <div key={i} className="flex items-center justify-between p-3 bg-gray-800/50 border border-gray-700 hover:border-gray-500 transition-colors">
                 <div>
-                  <span className={`text-sm ${
+                  <span className={`text-sm font-bold ${
                     item.type === 'weapon' ? 'text-orange-400' :
                     item.type === 'ammo' ? 'text-yellow-400' :
                     item.type === 'medkit' ? 'text-green-400' :
@@ -553,9 +589,9 @@ function Shop({ state, onClose, onBuy }: {
                 </div>
                 <button 
                   onClick={() => canAfford && onBuy(item)}
-                  className={`text-sm px-3 py-1 ${
+                  className={`text-sm px-4 py-1.5 transition-colors ${
                     canAfford 
-                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' 
+                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600 cursor-pointer' 
                       : 'bg-gray-800 text-gray-600 cursor-not-allowed'
                   }`}
                   disabled={!canAfford}
@@ -565,6 +601,10 @@ function Shop({ state, onClose, onBuy }: {
               </div>
             );
           })}
+        </div>
+        
+        <div className="mt-3 text-gray-600 text-xs text-center">
+          [Tab] или [Esc] — закрыть
         </div>
       </div>
     </div>
@@ -587,31 +627,31 @@ function Crafting({ state, onClose, onCraft }: {
   ];
   
   return (
-    <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-40">
-      <div className="bg-gray-900 border border-gray-700 p-6 max-w-md w-full">
+    <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-40 pointer-events-auto">
+      <div className="bg-gray-900 border-2 border-gray-600 p-6 max-w-md w-full mx-4 shadow-2xl">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-xl text-gray-300">ВЕРСТАК — КРАФТ ПАТРОНОВ</h3>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl">✕</button>
+          <h3 className="text-2xl text-gray-300 font-bold tracking-wider">ВЕРСТАК</h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-2xl cursor-pointer w-8 h-8 flex items-center justify-center">✕</button>
         </div>
         
-        <div className="text-gray-600 text-xs mb-4">
-          Ресурсы: Порох, гильзы, свинец. Стоимость за партию.
+        <div className="text-gray-500 text-xs mb-4">
+          Крафт патронов из ресурсов: порох, гильзы, свинец
         </div>
         
         <div className="space-y-2">
           {craftableAmmo.map((ammo, i) => {
             const canCraft = state.money >= ammo.cost;
             return (
-              <div key={i} className="flex items-center justify-between p-3 bg-gray-800/50 border border-gray-800">
+              <div key={i} className="flex items-center justify-between p-3 bg-gray-800/50 border border-gray-700 hover:border-gray-500 transition-colors">
                 <div>
-                  <span className="text-yellow-400 text-sm">{ammo.name}</span>
+                  <span className="text-yellow-400 text-sm font-bold">{ammo.name}</span>
                   <span className="text-gray-600 text-xs ml-2">x{ammo.amount}</span>
                 </div>
                 <button 
                   onClick={() => canCraft && onCraft(ammo.caliber, ammo.amount)}
-                  className={`text-sm px-3 py-1 ${
+                  className={`text-sm px-4 py-1.5 transition-colors ${
                     canCraft 
-                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' 
+                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600 cursor-pointer' 
                       : 'bg-gray-800 text-gray-600 cursor-not-allowed'
                   }`}
                   disabled={!canCraft}
@@ -623,9 +663,13 @@ function Crafting({ state, onClose, onCraft }: {
           })}
         </div>
         
-        <div className="mt-4 pt-3 border-t border-gray-800 flex justify-between">
+        <div className="mt-4 pt-3 border-t border-gray-700 flex justify-between items-center">
           <span className="text-gray-500 text-sm">Баланс:</span>
-          <span className="text-yellow-500 font-bold">{state.money} ₽</span>
+          <span className="text-yellow-500 font-bold text-lg">{state.money} ₽</span>
+        </div>
+        
+        <div className="mt-3 text-gray-600 text-xs text-center">
+          [C] или [Esc] — закрыть
         </div>
       </div>
     </div>
@@ -893,28 +937,49 @@ export default function App() {
       if (gameState.gamePhase !== 'playing') return;
       
       if (e.code === 'KeyI') {
-        setShowInventory(prev => !prev);
-        setShowShop(false);
-        setShowCrafting(false);
+        if (showInventory) {
+          closeInventory();
+        } else {
+          openInventory();
+        }
       }
       if (e.code === 'Tab') {
         e.preventDefault();
-        setShowShop(prev => !prev);
-        setShowInventory(false);
-        setShowCrafting(false);
+        if (showShop) {
+          setShowShop(false);
+        } else {
+          setShowShop(true);
+          setShowInventory(false);
+          setShowCrafting(false);
+          if (document.pointerLockElement) {
+            document.exitPointerLock();
+          }
+        }
       }
       if (e.code === 'KeyC') {
-        setShowCrafting(prev => !prev);
-        setShowInventory(false);
-        setShowShop(false);
+        if (showCrafting) {
+          setShowCrafting(false);
+        } else {
+          setShowCrafting(true);
+          setShowInventory(false);
+          setShowShop(false);
+          if (document.pointerLockElement) {
+            document.exitPointerLock();
+          }
+        }
       }
       if (e.code === 'Escape') {
         if (showInventory || showShop || showCrafting) {
           setShowInventory(false);
           setShowShop(false);
           setShowCrafting(false);
+        } else if (showSettings) {
+          setShowSettings(false);
         } else {
-          setShowSettings(prev => !prev);
+          setShowSettings(true);
+          if (document.pointerLockElement) {
+            document.exitPointerLock();
+          }
         }
       }
       // Weapon slots 1-4
@@ -941,6 +1006,38 @@ export default function App() {
       currentWeapon: weapon,
       ammoInMag: weapon.magSize,
     }));
+  };
+  
+  const handleUseItem = (item: InventoryItem) => {
+    if (item.type === 'medkit') {
+      const healAmount = item.id === 'apt' ? 30 : 15;
+      setGameState(prev => {
+        const newHP = Math.min(prev.playerMaxHP, prev.playerHP + healAmount);
+        // Remove one item from inventory
+        const newInventory = prev.inventory.map(inv => {
+          if (inv === item) {
+            return { ...inv, quantity: inv.quantity - 1 };
+          }
+          return inv;
+        }).filter(inv => inv.quantity > 0);
+        
+        return { ...prev, playerHP: newHP, inventory: newInventory };
+      });
+    }
+  };
+  
+  const openInventory = () => {
+    setShowInventory(true);
+    setShowShop(false);
+    setShowCrafting(false);
+    // Release pointer lock so player can click UI
+    if (document.pointerLockElement) {
+      document.exitPointerLock();
+    }
+  };
+  
+  const closeInventory = () => {
+    setShowInventory(false);
   };
   
   const handleBuy = (item: { type: string; id: string; name: string; price: number }) => {
@@ -1069,7 +1166,7 @@ export default function App() {
               // Dispatch keyboard event
               document.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyR' }));
             }}
-            onInventory={() => setShowInventory(true)}
+            onInventory={openInventory}
             onLook={(dx, dy) => {
               if (engineRef.current) {
                 engineRef.current.look(dx, dy);
@@ -1083,8 +1180,9 @@ export default function App() {
       {showInventory && gameState.gamePhase === 'playing' && (
         <Inventory 
           state={gameState} 
-          onClose={() => setShowInventory(false)} 
+          onClose={closeInventory} 
           onEquipWeapon={handleEquipWeapon}
+          onUseItem={handleUseItem}
         />
       )}
       
