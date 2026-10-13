@@ -35,7 +35,7 @@ function HitMarker({ zone, damage, id }: { zone: string; damage: number; id: num
 }
 
 // ============ MAIN MENU ============
-function MainMenu({ onStart }: { onStart: () => void }) {
+function MainMenu({ onStart, onSettings }: { onStart: () => void; onSettings: () => void }) {
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-50">
       <div className="text-center">
@@ -47,19 +47,22 @@ function MainMenu({ onStart }: { onStart: () => void }) {
         <div className="space-y-4">
           <button 
             onClick={onStart}
-            className="block w-64 mx-auto py-3 px-8 bg-gray-900 border border-gray-700 text-gray-300 hover:bg-gray-800 hover:border-orange-900 hover:text-orange-400 transition-all duration-200 text-lg"
+            className="block w-64 mx-auto py-3 px-8 bg-gray-900 border border-gray-700 text-gray-300 hover:bg-gray-800 hover:border-orange-900 hover:text-orange-400 transition-all duration-200 text-lg cursor-pointer"
           >
             НАЧАТЬ ИГРУ
           </button>
-          <button className="block w-64 mx-auto py-3 px-8 bg-gray-900 border border-gray-700 text-gray-500 hover:bg-gray-800 transition-all duration-200">
+          <button 
+            onClick={onSettings}
+            className="block w-64 mx-auto py-3 px-8 bg-gray-900 border border-gray-700 text-gray-400 hover:bg-gray-800 hover:border-gray-500 hover:text-gray-200 transition-all duration-200 cursor-pointer"
+          >
             НАСТРОЙКИ
           </button>
         </div>
         
-        <div className="mt-16 text-gray-700 text-xs">
+        <div className="mt-16 text-gray-600 text-xs space-y-1">
           <p>WASD — движение | Мышь — обзор | ЛКМ — огонь</p>
-          <p>R — перезарядка | Shift — бег | Пробел — прыжок</p>
-          <p>I — инвентарь | Tab — магазин</p>
+          <p>R — перезарядка | F — фонарик | Shift — бег | Пробел — прыжок</p>
+          <p>I — инвентарь | Tab — магазин | C — крафт</p>
         </div>
       </div>
       
@@ -68,6 +71,114 @@ function MainMenu({ onStart }: { onStart: () => void }) {
       <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-gray-900/30 to-transparent" />
     </div>
   );
+}
+
+// ============ SETTINGS ============
+function Settings({ onClose, onMainMenu, settings, onChange, inGame }: { 
+  onClose: () => void; 
+  onMainMenu?: () => void;
+  settings: GameSettings;
+  onChange: (s: GameSettings) => void;
+  inGame?: boolean;
+}) {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-black/95 z-50">
+      <div className="bg-gray-900 border border-gray-700 p-8 max-w-md w-full">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl text-gray-300 tracking-wider">НАСТРОЙКИ</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-2xl cursor-pointer">✕</button>
+        </div>
+        
+        <div className="space-y-6">
+          {/* Sensitivity */}
+          <div>
+            <label className="text-gray-400 text-sm block mb-2">Чувствительность мыши</label>
+            <input 
+              type="range" 
+              min="0.5" max="5" step="0.1"
+              value={settings.sensitivity}
+              onChange={(e) => onChange({ ...settings, sensitivity: parseFloat(e.target.value) })}
+              className="w-full accent-orange-500"
+            />
+            <div className="text-gray-600 text-xs mt-1">{settings.sensitivity.toFixed(1)}</div>
+          </div>
+          
+          {/* Volume */}
+          <div>
+            <label className="text-gray-400 text-sm block mb-2">Громкость</label>
+            <input 
+              type="range" 
+              min="0" max="1" step="0.05"
+              value={settings.volume}
+              onChange={(e) => onChange({ ...settings, volume: parseFloat(e.target.value) })}
+              className="w-full accent-orange-500"
+            />
+            <div className="text-gray-600 text-xs mt-1">{Math.round(settings.volume * 100)}%</div>
+          </div>
+          
+          {/* FOV */}
+          <div>
+            <label className="text-gray-400 text-sm block mb-2">Поле зрения (FOV)</label>
+            <input 
+              type="range" 
+              min="60" max="110" step="5"
+              value={settings.fov}
+              onChange={(e) => onChange({ ...settings, fov: parseInt(e.target.value) })}
+              className="w-full accent-orange-500"
+            />
+            <div className="text-gray-600 text-xs mt-1">{settings.fov}°</div>
+          </div>
+          
+          {/* Invert Y */}
+          <div className="flex items-center justify-between">
+            <label className="text-gray-400 text-sm">Инвертировать ось Y</label>
+            <button 
+              onClick={() => onChange({ ...settings, invertY: !settings.invertY })}
+              className={`w-12 h-6 rounded-full transition-colors cursor-pointer ${settings.invertY ? 'bg-orange-600' : 'bg-gray-700'}`}
+            >
+              <div className={`w-5 h-5 rounded-full bg-white transition-transform ${settings.invertY ? 'translate-x-6' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+          
+          {/* Show FPS */}
+          <div className="flex items-center justify-between">
+            <label className="text-gray-400 text-sm">Показывать FPS</label>
+            <button 
+              onClick={() => onChange({ ...settings, showFPS: !settings.showFPS })}
+              className={`w-12 h-6 rounded-full transition-colors cursor-pointer ${settings.showFPS ? 'bg-orange-600' : 'bg-gray-700'}`}
+            >
+              <div className={`w-5 h-5 rounded-full bg-white transition-transform ${settings.showFPS ? 'translate-x-6' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+        </div>
+        
+        <div className="mt-8 space-y-2">
+          <button 
+            onClick={onClose}
+            className="w-full py-3 border border-gray-600 text-gray-300 hover:bg-gray-800 transition-all cursor-pointer"
+          >
+            ПРИМЕНИТЬ И ЗАКРЫТЬ
+          </button>
+          {inGame && onMainMenu && (
+            <button 
+              onClick={onMainMenu}
+              className="w-full py-3 border border-red-900 text-red-400 hover:bg-red-900/30 transition-all cursor-pointer"
+            >
+              ВЫЙТИ В ГЛАВНОЕ МЕНЮ
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface GameSettings {
+  sensitivity: number;
+  volume: number;
+  fov: number;
+  invertY: boolean;
+  showFPS: boolean;
 }
 
 // ============ DIFFICULTY SELECT ============
@@ -135,7 +246,7 @@ function DifficultySelect({ onSelect, onBack }: { onSelect: (d: DifficultyLevel)
 }
 
 // ============ HUD ============
-function HUD({ state, hitMarkers, waveInfo }: { state: GameState; hitMarkers: { zone: string; damage: number; id: number }[]; waveInfo: { wave: number; enemiesLeft: number } }) {
+function HUD({ state, hitMarkers, waveInfo, isLocked }: { state: GameState; hitMarkers: { zone: string; damage: number; id: number }[]; waveInfo: { wave: number; enemiesLeft: number }; isLocked: boolean }) {
   const hpPercent = (state.playerHP / state.playerMaxHP) * 100;
   const companionPercent = (state.companionHP / state.companionMaxHP) * 100;
   const reserve = state.ammoReserve[state.currentWeapon?.caliber || ''] || 0;
@@ -230,12 +341,23 @@ function HUD({ state, hitMarkers, waveInfo }: { state: GameState; hitMarkers: { 
         <div className="text-gray-500 text-[10px]">Врагов: {waveInfo.enemiesLeft}</div>
       </div>
       
+      {/* Pointer lock prompt */}
+      {!isLocked && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black/80 border border-gray-600 px-6 py-4 text-center pointer-events-none">
+          <div className="text-gray-300 text-sm mb-1">Кликните для захвата мыши</div>
+          <div className="text-gray-500 text-xs">WASD — движение • Мышь — обзор • ЛКМ — огонь</div>
+          <div className="text-gray-600 text-xs mt-1">ESC — освободить курсор</div>
+        </div>
+      )}
+      
       {/* Controls hint */}
       <div className="absolute bottom-8 left-1/2 -translate-x-1/2 text-center">
         <div className="text-gray-700 text-[10px] space-x-3">
           <span>[I] Инвентарь</span>
           <span>[Tab] Магазин</span>
           <span>[C] Крафт</span>
+          <span>[F] Фонарик</span>
+          <span>[Esc] Меню</span>
         </div>
       </div>
       
@@ -651,6 +773,15 @@ export default function App() {
   const [waveInfo, setWaveInfo] = useState({ wave: 1, enemiesLeft: 0 });
   const [damageIndicators, setDamageIndicators] = useState<{ angle: number; id: number }[]>([]);
   const damageIdRef = useRef(0);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settings, setSettings] = useState<GameSettings>({
+    sensitivity: 2.0,
+    volume: 0.7,
+    fov: 75,
+    invertY: false,
+    showFPS: false,
+  });
+  const [isPointerLocked, setIsPointerLocked] = useState(false);
   const engineRef = useRef<GameEngine | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hitIdRef = useRef(0);
@@ -666,6 +797,11 @@ export default function App() {
       
       engine.init(containerRef.current, gameState.difficulty!);
       engine.setAmmoReserve(gameState.ammoReserve);
+      
+      // Pointer lock callback
+      engine.setLockCallback((locked) => {
+        setIsPointerLocked(locked);
+      });
       
       engine.setCallbacks({
         onStateUpdate: (partial) => {
@@ -742,6 +878,15 @@ export default function App() {
     };
   }, [gameState.gamePhase, gameState.difficulty]);
   
+  // Apply settings to engine
+  useEffect(() => {
+    if (engineRef.current) {
+      engineRef.current.setFOV(settings.fov);
+      engineRef.current.setSensitivity(settings.sensitivity);
+      engineRef.current.setInvertY(settings.invertY);
+    }
+  }, [settings.fov, settings.sensitivity, settings.invertY]);
+  
   // Keyboard shortcuts
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -763,6 +908,15 @@ export default function App() {
         setShowInventory(false);
         setShowShop(false);
       }
+      if (e.code === 'Escape') {
+        if (showInventory || showShop || showCrafting) {
+          setShowInventory(false);
+          setShowShop(false);
+          setShowCrafting(false);
+        } else {
+          setShowSettings(prev => !prev);
+        }
+      }
       // Weapon slots 1-4
       if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3' || e.code === 'Digit4') {
         const slotIndex = parseInt(e.code.replace('Digit', '')) - 1;
@@ -776,7 +930,7 @@ export default function App() {
     
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [gameState.gamePhase, gameState.inventory]);
+  }, [gameState.gamePhase, gameState.inventory, showInventory, showShop, showCrafting]);
   
   const handleEquipWeapon = (weapon: WeaponData) => {
     if (engineRef.current) {
@@ -858,8 +1012,28 @@ export default function App() {
       <div ref={containerRef} className="absolute inset-0" />
       
       {/* Menu screens */}
-      {gameState.gamePhase === 'menu' && (
-        <MainMenu onStart={() => setGameState(prev => ({ ...prev, gamePhase: 'difficulty' }))} />
+      {gameState.gamePhase === 'menu' && !showSettings && (
+        <MainMenu 
+          onStart={() => setGameState(prev => ({ ...prev, gamePhase: 'difficulty' }))} 
+          onSettings={() => setShowSettings(true)}
+        />
+      )}
+      
+      {showSettings && (
+        <Settings 
+          onClose={() => setShowSettings(false)}
+          onMainMenu={() => {
+            setShowSettings(false);
+            if (engineRef.current) {
+              engineRef.current.destroy();
+              engineRef.current = null;
+            }
+            setGameState(createInitialState());
+          }}
+          settings={settings}
+          onChange={setSettings}
+          inGame={gameState.gamePhase === 'playing'}
+        />
       )}
       
       {gameState.gamePhase === 'difficulty' && (
@@ -872,13 +1046,35 @@ export default function App() {
       {/* HUD */}
       {(gameState.gamePhase === 'playing') && (
         <>
-          <HUD state={gameState} hitMarkers={hitMarkers} waveInfo={waveInfo} />
+          <HUD state={gameState} hitMarkers={hitMarkers} waveInfo={waveInfo} isLocked={isPointerLocked} />
           <MobileControls 
-            onMove={() => {}}
-            onShoot={() => {}}
-            onReload={() => {}}
+            onMove={(x, y) => {
+              if (engineRef.current) {
+                engineRef.current.setMove({
+                  forward: y < -0.3,
+                  backward: y > 0.3,
+                  left: x < -0.3,
+                  right: x > 0.3,
+                  sprint: false,
+                });
+              }
+            }}
+            onShoot={(pressed) => {
+              if (engineRef.current) {
+                if (pressed) engineRef.current.startShooting();
+                else engineRef.current.stopShooting();
+              }
+            }}
+            onReload={() => {
+              // Dispatch keyboard event
+              document.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyR' }));
+            }}
             onInventory={() => setShowInventory(true)}
-            onLook={() => {}}
+            onLook={(dx, dy) => {
+              if (engineRef.current) {
+                engineRef.current.look(dx, dy);
+              }
+            }}
           />
         </>
       )}

@@ -139,7 +139,7 @@ export class GameEngine {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.4;
+    this.renderer.toneMappingExposure = 1.2;
   }
 
   init(container: HTMLElement, difficulty: DifficultyLevel) {
@@ -165,32 +165,52 @@ export class GameEngine {
   }
 
   private setupScene() {
-    this.scene.background = new THREE.Color(0x0a0a0f);
-    this.scene.fog = new THREE.FogExp2(0x0a0a0f, 0.015);
+    this.scene.background = new THREE.Color(0x1a1a2f);
+    this.scene.fog = new THREE.FogExp2(0x1a1a2f, 0.008);
   }
 
+  private flashlight: THREE.SpotLight | null = null;
+  private flashlightOn = true;
+  
   private setupLighting() {
-    // Dim ambient
-    const ambient = new THREE.AmbientLight(0x1a1a2e, 0.3);
+    // Much brighter ambient so player can see
+    const ambient = new THREE.AmbientLight(0x334455, 0.8);
     this.scene.add(ambient);
     
-    // Moon light
-    const moon = new THREE.DirectionalLight(0x4466aa, 0.2);
+    // Hemisphere light for better overall visibility
+    const hemi = new THREE.HemisphereLight(0x445566, 0x222222, 0.6);
+    this.scene.add(hemi);
+    
+    // Moon light — brighter
+    const moon = new THREE.DirectionalLight(0x6688bb, 0.5);
     moon.position.set(50, 80, 30);
     moon.castShadow = true;
     moon.shadow.mapSize.set(2048, 2048);
     moon.shadow.camera.near = 0.5;
     moon.shadow.camera.far = 200;
-    moon.shadow.camera.left = -50;
-    moon.shadow.camera.right = 50;
-    moon.shadow.camera.top = 50;
-    moon.shadow.camera.bottom = -50;
+    moon.shadow.camera.left = -60;
+    moon.shadow.camera.right = 60;
+    moon.shadow.camera.top = 60;
+    moon.shadow.camera.bottom = -60;
     this.scene.add(moon);
     
-    // Hanging lights (bare bulbs on wires)
+    // === FLASHLIGHT (SpotLight attached to camera) ===
+    this.flashlight = new THREE.SpotLight(0xffeedd, 3, 40, Math.PI / 6, 0.3, 1.5);
+    this.flashlight.position.set(0.2, -0.15, -0.3);
+    this.flashlight.target.position.set(0, 0, -10);
+    this.camera.add(this.flashlight);
+    this.camera.add(this.flashlight.target);
+    
+    // Secondary fill light on camera (so player always sees something)
+    const playerLight = new THREE.PointLight(0x8899aa, 0.5, 10, 2);
+    playerLight.position.set(0, 0, 0);
+    this.camera.add(playerLight);
+    
+    // Hanging lights (bare bulbs on wires) — brighter
     const lightPositions = [
       [5, 3.5, 5], [-5, 3.5, -5], [10, 3.2, -3], [-8, 3.5, 8],
       [15, 3.5, 0], [0, 3.5, 12], [-12, 3.5, -10], [20, 3.5, 15],
+      [-3, 3.5, 3], [7, 3.5, -7],
     ];
     
     lightPositions.forEach(([x, y, z]) => {
@@ -202,38 +222,43 @@ export class GameEngine {
       this.scene.add(wire);
       
       // Bulb
-      const bulbGeo = new THREE.SphereGeometry(0.08, 8, 8);
-      const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffaa44 });
+      const bulbGeo = new THREE.SphereGeometry(0.1, 8, 8);
+      const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffcc66 });
       const bulb = new THREE.Mesh(bulbGeo, bulbMat);
       bulb.position.set(x, y, z);
       this.scene.add(bulb);
       
-      // Point light
-      const light = new THREE.PointLight(0xffaa44, 0.8, 12, 2);
+      // Point light — much brighter
+      const light = new THREE.PointLight(0xffaa44, 2.0, 18, 1.5);
       light.position.set(x, y, z);
-      light.castShadow = true;
-      light.shadow.mapSize.set(256, 256);
       this.scene.add(light);
     });
     
     // Muzzle flash light (attached to camera)
-    this.muzzleFlash = new THREE.PointLight(0xffaa00, 0, 8, 2);
+    this.muzzleFlash = new THREE.PointLight(0xffaa00, 0, 12, 2);
     this.camera.add(this.muzzleFlash);
     this.muzzleFlash.position.set(0.3, -0.2, -1);
     this.scene.add(this.camera);
+  }
+  
+  toggleFlashlight() {
+    this.flashlightOn = !this.flashlightOn;
+    if (this.flashlight) {
+      this.flashlight.visible = this.flashlightOn;
+    }
   }
 
   private buildLevel() {
     // Ground - wet concrete
     const groundGeo = new THREE.PlaneGeometry(100, 100);
     const groundMat = new THREE.MeshStandardMaterial({ 
-      color: 0x2a2a2a, roughness: 0.9, metalness: 0.1 
+      color: 0x3a3a3a, roughness: 0.85, metalness: 0.1 
     });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     this.scene.add(ground);
-    this.colliders.push(new THREE.Box3().setFromObject(ground));
+    // Don't add ground to colliders — it's flat, handled by Y check
     
     // Panel buildings (Soviet blocks)
     const buildingMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.95 });
@@ -259,15 +284,16 @@ export class GameEngine {
     this.createWall(8, 0, 5, 0.3, 3.5, 12, darkMat);
     this.createWall(-3, 0, 8, 10, 3.5, 0.3, darkMat);
     
-    // Concrete barriers / tank traps
+    // Concrete barriers / tank traps — keep away from spawn (0,0,0)
     for (let i = 0; i < 12; i++) {
       const barrierGeo = new THREE.BoxGeometry(2, 1, 0.5);
       const barrier = new THREE.Mesh(barrierGeo, concreteMat);
       const angle = (i / 12) * Math.PI * 2;
+      const dist = 10 + Math.random() * 5; // min 10 units from center
       barrier.position.set(
-        Math.cos(angle) * (8 + Math.random() * 5),
+        Math.cos(angle) * dist,
         0.5,
-        Math.sin(angle) * (8 + Math.random() * 5)
+        Math.sin(angle) * dist
       );
       barrier.rotation.y = angle + Math.PI / 2;
       barrier.castShadow = true;
@@ -1327,9 +1353,11 @@ export class GameEngine {
     rain.geometry.attributes.position.needsUpdate = true;
   }
 
+  private onLockChange: ((locked: boolean) => void) | null = null;
+  
   private setupControls() {
     document.addEventListener('keydown', (e) => {
-      if (!this.isLocked) return;
+      // Allow movement even without pointer lock
       switch (e.code) {
         case 'KeyW': this.moveForward = true; break;
         case 'KeyS': this.moveBackward = true; break;
@@ -1343,6 +1371,7 @@ export class GameEngine {
           }
           break;
         case 'KeyR': this.reload(); break;
+        case 'KeyF': this.toggleFlashlight(); break;
       }
     });
     
@@ -1358,8 +1387,10 @@ export class GameEngine {
     
     document.addEventListener('mousemove', (e) => {
       if (!this.isLocked) return;
-      this.playerYaw -= e.movementX * 0.002;
-      this.playerPitch -= e.movementY * 0.002;
+      const sens = ((this as any)._sensitivity || 2.0) * 0.001;
+      this.playerYaw -= e.movementX * sens;
+      const invertY = (this as any)._invertY ? 1 : -1;
+      this.playerPitch += e.movementY * sens * invertY;
       this.playerPitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.playerPitch));
     });
     
@@ -1377,12 +1408,60 @@ export class GameEngine {
     
     // Pointer lock
     this.renderer.domElement.addEventListener('click', () => {
-      this.renderer.domElement.requestPointerLock();
+      if (!this.isLocked) {
+        this.renderer.domElement.requestPointerLock();
+      }
     });
     
     document.addEventListener('pointerlockchange', () => {
       this.isLocked = document.pointerLockElement === this.renderer.domElement;
+      if (this.onLockChange) this.onLockChange(this.isLocked);
     });
+  }
+  
+  setLockCallback(cb: (locked: boolean) => void) {
+    this.onLockChange = cb;
+  }
+  
+  getIsLocked(): boolean {
+    return this.isLocked;
+  }
+  
+  setFOV(fov: number) {
+    this.camera.fov = fov;
+    this.camera.updateProjectionMatrix();
+  }
+  
+  setSensitivity(sens: number) {
+    (this as any)._sensitivity = sens;
+  }
+  
+  setInvertY(invert: boolean) {
+    (this as any)._invertY = invert;
+  }
+  
+  // Allow external look input (for mobile/touch)
+  look(dx: number, dy: number) {
+    this.playerYaw -= dx * 0.003;
+    this.playerPitch -= dy * 0.003;
+    this.playerPitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.playerPitch));
+  }
+  
+  setMove(input: { forward: boolean; backward: boolean; left: boolean; right: boolean; sprint: boolean }) {
+    this.moveForward = input.forward;
+    this.moveBackward = input.backward;
+    this.moveLeft = input.left;
+    this.moveRight = input.right;
+    this.isSprinting = input.sprint;
+  }
+  
+  startShooting() {
+    this.isShooting = true;
+    this.shoot();
+  }
+  
+  stopShooting() {
+    this.isShooting = false;
   }
 
   private setupResize() {
@@ -1434,21 +1513,56 @@ export class GameEngine {
       this.playerOnGround = true;
     }
     
-    // Simple world collision
-    const playerBox = new THREE.Box3().setFromCenterAndSize(
-      newPos, new THREE.Vector3(0.5, 1.7, 0.5)
+    // World collision — try X and Z separately for sliding
+    const testBoxX = new THREE.Box3().setFromCenterAndSize(
+      new THREE.Vector3(newPos.x, this.playerPos.y, this.playerPos.z),
+      new THREE.Vector3(0.6, 1.7, 0.6)
     );
-    
-    let collided = false;
+    let blockedX = false;
     for (const collider of this.colliders) {
-      if (playerBox.intersectsBox(collider)) {
-        collided = true;
+      if (testBoxX.intersectsBox(collider)) {
+        blockedX = true;
         break;
       }
     }
     
-    if (!collided) {
-      this.playerPos.copy(newPos);
+    const testBoxZ = new THREE.Box3().setFromCenterAndSize(
+      new THREE.Vector3(this.playerPos.x, this.playerPos.y, newPos.z),
+      new THREE.Vector3(0.6, 1.7, 0.6)
+    );
+    let blockedZ = false;
+    for (const collider of this.colliders) {
+      if (testBoxZ.intersectsBox(collider)) {
+        blockedZ = true;
+        break;
+      }
+    }
+    
+    // Apply movement only on non-blocked axes (wall sliding)
+    if (!blockedX) {
+      this.playerPos.x = newPos.x;
+    }
+    if (!blockedZ) {
+      this.playerPos.z = newPos.z;
+    }
+    this.playerPos.y = newPos.y;
+    
+    // Emergency push-out if stuck inside a collider
+    const stuckBox = new THREE.Box3().setFromCenterAndSize(
+      this.playerPos, new THREE.Vector3(0.6, 1.7, 0.6)
+    );
+    for (const collider of this.colliders) {
+      if (stuckBox.intersectsBox(collider)) {
+        // Push player away from collider center
+        const colliderCenter = new THREE.Vector3();
+        collider.getCenter(colliderCenter);
+        const pushDir = this.playerPos.clone().sub(colliderCenter);
+        pushDir.y = 0;
+        if (pushDir.length() < 0.01) pushDir.set(1, 0, 0);
+        pushDir.normalize().multiplyScalar(0.5);
+        this.playerPos.add(pushDir);
+        break;
+      }
     }
     
     this.camera.position.copy(this.playerPos);
