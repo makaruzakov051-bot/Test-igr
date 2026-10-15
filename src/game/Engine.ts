@@ -139,7 +139,7 @@ export class GameEngine {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.2;
+    this.renderer.toneMappingExposure = 1.5;
   }
 
   init(container: HTMLElement, difficulty: DifficultyLevel) {
@@ -165,24 +165,24 @@ export class GameEngine {
   }
 
   private setupScene() {
-    this.scene.background = new THREE.Color(0x1a1a2f);
-    this.scene.fog = new THREE.FogExp2(0x1a1a2f, 0.005); // Less fog for bigger map
+    this.scene.background = new THREE.Color(0x2a2a3f);
+    this.scene.fog = new THREE.FogExp2(0x2a2a3f, 0.003); // Very minimal fog for open world
   }
 
   private flashlight: THREE.SpotLight | null = null;
   private flashlightOn = true;
   
   private setupLighting() {
-    // Much brighter ambient so player can see
-    const ambient = new THREE.AmbientLight(0x334455, 0.8);
+    // Very bright ambient for open world visibility
+    const ambient = new THREE.AmbientLight(0x445566, 1.2);
     this.scene.add(ambient);
     
     // Hemisphere light for better overall visibility
-    const hemi = new THREE.HemisphereLight(0x445566, 0x222222, 0.6);
+    const hemi = new THREE.HemisphereLight(0x556677, 0x333333, 0.8);
     this.scene.add(hemi);
     
-    // Moon light — brighter
-    const moon = new THREE.DirectionalLight(0x6688bb, 0.5);
+    // Moon light — very bright
+    const moon = new THREE.DirectionalLight(0x7799cc, 0.8);
     moon.position.set(50, 80, 30);
     moon.castShadow = true;
     moon.shadow.mapSize.set(2048, 2048);
@@ -195,34 +195,41 @@ export class GameEngine {
     this.scene.add(moon);
     
     // === FLASHLIGHT (SpotLight attached to camera) ===
-    this.flashlight = new THREE.SpotLight(0xffeedd, 3, 40, Math.PI / 6, 0.3, 1.5);
+    this.flashlight = new THREE.SpotLight(0xffeedd, 5, 60, Math.PI / 5, 0.4, 1.2);
     this.flashlight.position.set(0.2, -0.15, -0.3);
     this.flashlight.target.position.set(0, 0, -10);
     this.camera.add(this.flashlight);
     this.camera.add(this.flashlight.target);
     
     // Secondary fill light on camera (so player always sees something)
-    const playerLight = new THREE.PointLight(0x8899aa, 0.5, 10, 2);
+    const playerLight = new THREE.PointLight(0x8899aa, 1.0, 15, 1.5);
     playerLight.position.set(0, 0, 0);
     this.camera.add(playerLight);
     
-    // Hanging lights (bare bulbs on wires) — spread across large map
+    // Hanging lights (bare bulbs on wires) — many more for better visibility
     const lightPositions = [
-      // Central area
+      // Central area - dense lighting
       [5, 3.5, 5], [-5, 3.5, -5], [10, 3.2, -3], [-8, 3.5, 8],
       [15, 3.5, 0], [0, 3.5, 12], [-12, 3.5, -10], [20, 3.5, 15],
-      [-3, 3.5, 3], [7, 3.5, -7],
-      // North
-      [0, 3.5, -40], [-15, 3.5, -45], [20, 3.5, -50],
-      // East
-      [40, 3.5, 0], [50, 3.5, -15], [45, 3.5, 20],
-      // West
-      [-40, 3.5, 0], [-50, 3.5, -15], [-45, 3.5, 25],
-      // South
-      [0, 3.5, 45], [-20, 3.5, 50], [20, 3.5, 50],
-      // Far areas
+      [-3, 3.5, 3], [7, 3.5, -7], [3, 3.5, -8], [-7, 3.5, 6],
+      // North district
+      [0, 3.5, -40], [-15, 3.5, -45], [20, 3.5, -50], [10, 3.5, -35],
+      [-10, 3.5, -30], [5, 3.5, -45], [-25, 3.5, -40],
+      // East district
+      [40, 3.5, 0], [50, 3.5, -15], [45, 3.5, 20], [35, 3.5, 10],
+      [55, 3.5, -5], [40, 3.5, -25], [50, 3.5, 15],
+      // West district
+      [-40, 3.5, 0], [-50, 3.5, -15], [-45, 3.5, 25], [-35, 3.5, 10],
+      [-55, 3.5, -5], [-40, 3.5, -20], [-50, 3.5, 20],
+      // South district
+      [0, 3.5, 45], [-20, 3.5, 50], [20, 3.5, 50], [10, 3.5, 40],
+      [-10, 3.5, 35], [5, 3.5, 55], [-25, 3.5, 45],
+      // Far areas - strategic lighting
       [60, 3.5, 0], [-60, 3.5, -30], [0, 3.5, -60],
-      [30, 3.5, 30], [-30, 3.5, -30],
+      [30, 3.5, 30], [-30, 3.5, -30], [45, 3.5, -40],
+      [-45, 3.5, 40], [35, 3.5, -50], [-35, 3.5, 50],
+      // Extra lights along paths
+      [8, 3.5, -15], [-8, 3.5, 15], [12, 3.5, 25], [-12, 3.5, -25],
     ];
     
     lightPositions.forEach(([x, y, z]) => {
@@ -240,8 +247,8 @@ export class GameEngine {
       bulb.position.set(x, y, z);
       this.scene.add(bulb);
       
-      // Point light — much brighter
-      const light = new THREE.PointLight(0xffaa44, 2.0, 18, 1.5);
+      // Point light — very bright and wide radius
+      const light = new THREE.PointLight(0xffaa44, 3.0, 25, 1.2);
       light.position.set(x, y, z);
       this.scene.add(light);
     });
@@ -287,6 +294,9 @@ export class GameEngine {
     // Building 4 - medium block
     this.createBuilding(20, 0, 15, 10, 6, 10, buildingMat);
     
+    // === ENTERABLE BUILDING (with interior) ===
+    this.createEnterableBuilding(0, 0, -10);
+    
     // === NORTH DISTRICT ===
     // Building 5 - distant tower
     this.createBuilding(0, 0, -50, 8, 15, 8, buildingMat);
@@ -328,31 +338,17 @@ export class GameEngine {
     this.createBuilding(-70, 0, -40, 8, 6, 8, buildingMat);
     this.createBuilding(0, 0, -70, 10, 10, 10, buildingMat);
     
-    // Interior corridor walls and fences — create streets and alleys
-    // Central area walls
-    this.createWall(0, 0, -8, 20, 3.5, 0.3, darkMat);
-    this.createWall(-8, 0, 0, 0.3, 3.5, 16, darkMat);
-    this.createWall(8, 0, 5, 0.3, 3.5, 12, darkMat);
-    this.createWall(-3, 0, 8, 10, 3.5, 0.3, darkMat);
+    // Minimal walls for open world - only essential structures
+    // Small walls near enterable building for context
+    this.createWall(-6, 0, -5, 0.3, 3, 5, darkMat);
+    this.createWall(6, 0, -5, 0.3, 3, 5, darkMat);
     
-    // Street dividers — create distinct areas
-    this.createWall(30, 0, 0, 0.3, 3, 40, concreteMat); // east-west divider
-    this.createWall(-30, 0, 0, 0.3, 3, 40, concreteMat); // west side
-    this.createWall(0, 0, 30, 60, 3, 0.3, concreteMat); // north-south divider
-    this.createWall(0, 0, -30, 60, 3, 0.3, concreteMat); // south side
-    
-    // Alley walls
-    this.createWall(10, 0, -35, 0.3, 3, 10, darkMat);
-    this.createWall(-10, 0, 35, 0.3, 3, 10, darkMat);
-    this.createWall(40, 0, -20, 15, 3, 0.3, concreteMat);
-    this.createWall(-40, 0, 20, 15, 3, 0.3, concreteMat);
-    
-    // Concrete barriers / tank traps — spread across large map
-    for (let i = 0; i < 30; i++) {
+    // Concrete barriers / tank traps — fewer for more open world (only 10)
+    for (let i = 0; i < 10; i++) {
       const barrierGeo = new THREE.BoxGeometry(2, 1, 0.5);
       const barrier = new THREE.Mesh(barrierGeo, concreteMat);
       const angle = Math.random() * Math.PI * 2;
-      const dist = 8 + Math.random() * 60; // spread across map
+      const dist = 15 + Math.random() * 50; // spread across map
       barrier.position.set(
         Math.cos(angle) * dist,
         0.5,
@@ -362,13 +358,13 @@ export class GameEngine {
       barrier.castShadow = true;
       barrier.receiveShadow = true;
       this.scene.add(barrier);
-      this.colliders.push(new THREE.Box3().setFromObject(barrier));
+      // Don't add to colliders - decorative only for open world
       this.levelObjects.push(barrier);
     }
     
-    // Abandoned cars — spread across the map
+    // Abandoned cars — fewer for open world (only 6)
     const carColors = [0x2a3a2a, 0x3a2a2a, 0x2a2a3a, 0x3a3a2a, 0x4a3a2a];
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < 6; i++) {
       const carMat = new THREE.MeshStandardMaterial({ 
         color: carColors[i % carColors.length], roughness: 0.7, metalness: 0.3 
       });
@@ -382,7 +378,7 @@ export class GameEngine {
       carGroup.add(carTop);
       
       const angle = Math.random() * Math.PI * 2;
-      const dist = 10 + Math.random() * 50;
+      const dist = 20 + Math.random() * 40;
       carGroup.position.set(
         Math.cos(angle) * dist,
         0,
@@ -391,20 +387,18 @@ export class GameEngine {
       carGroup.rotation.y = Math.random() * Math.PI * 2;
       carGroup.castShadow = true;
       this.scene.add(carGroup);
-      
-      const carBox = new THREE.Box3().setFromObject(carGroup);
-      this.colliders.push(carBox);
+      // Don't add to colliders - decorative for open world
     }
     
-    // Rubble/debris — spread across large map
-    for (let i = 0; i < 50; i++) {
-      const size = 0.2 + Math.random() * 0.8;
+    // Rubble/debris — minimal for open world (only 15, no colliders)
+    for (let i = 0; i < 15; i++) {
+      const size = 0.2 + Math.random() * 0.6;
       const rubbleGeo = new THREE.BoxGeometry(size, size * 0.5, size * 0.8);
       const rubble = new THREE.Mesh(rubbleGeo, new THREE.MeshStandardMaterial({ 
         color: new THREE.Color(0.15 + Math.random() * 0.1, 0.15 + Math.random() * 0.1, 0.15 + Math.random() * 0.1), roughness: 1.0 
       }));
       const angle = Math.random() * Math.PI * 2;
-      const dist = Math.random() * 80;
+      const dist = Math.random() * 70;
       rubble.position.set(
         Math.cos(angle) * dist,
         size * 0.25,
@@ -413,9 +407,7 @@ export class GameEngine {
       rubble.rotation.set(Math.random() * 0.3, Math.random() * Math.PI, Math.random() * 0.3);
       rubble.castShadow = true;
       this.scene.add(rubble);
-      if (size > 0.5) {
-        this.colliders.push(new THREE.Box3().setFromObject(rubble));
-      }
+      // No colliders - decorative only
     }
     
     // Pipes along walls
@@ -432,14 +424,14 @@ export class GameEngine {
       this.scene.add(pipe);
     }
     
-    // Barrels — spread across map
+    // Barrels — fewer for open world (only 8, no colliders)
     const barrelMat = new THREE.MeshStandardMaterial({ color: 0x4a3a2a, roughness: 0.7 });
     const barrelMat2 = new THREE.MeshStandardMaterial({ color: 0x2a4a3a, roughness: 0.7 });
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 8; i++) {
       const barrelGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.9, 12);
       const barrel = new THREE.Mesh(barrelGeo, Math.random() > 0.5 ? barrelMat : barrelMat2);
       const angle = Math.random() * Math.PI * 2;
-      const dist = 5 + Math.random() * 70;
+      const dist = 10 + Math.random() * 60;
       barrel.position.set(
         Math.cos(angle) * dist,
         0.45,
@@ -447,7 +439,7 @@ export class GameEngine {
       );
       barrel.castShadow = true;
       this.scene.add(barrel);
-      this.colliders.push(new THREE.Box3().setFromObject(barrel));
+      // No colliders - decorative only
     }
     
     // Rain particles
@@ -481,6 +473,172 @@ export class GameEngine {
     }
   }
 
+  private createEnterableBuilding(x: number, y: number, z: number) {
+    const w = 12, h = 4, d = 10;
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.95 });
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.9 });
+    const ceilingMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 1.0 });
+    
+    // Floor
+    const floorGeo = new THREE.PlaneGeometry(w, d);
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(x, y + 0.01, z);
+    floor.receiveShadow = true;
+    this.scene.add(floor);
+    
+    // Ceiling
+    const ceiling = new THREE.Mesh(floorGeo, ceilingMat);
+    ceiling.rotation.x = Math.PI / 2;
+    ceiling.position.set(x, y + h, z);
+    this.scene.add(ceiling);
+    
+    // Back wall (solid)
+    const backWallGeo = new THREE.BoxGeometry(w, h, 0.3);
+    const backWall = new THREE.Mesh(backWallGeo, wallMat);
+    backWall.position.set(x, y + h/2, z - d/2);
+    backWall.castShadow = true;
+    backWall.receiveShadow = true;
+    this.scene.add(backWall);
+    this.colliders.push(new THREE.Box3().setFromObject(backWall));
+    
+    // Left wall (solid)
+    const sideWallGeo = new THREE.BoxGeometry(0.3, h, d);
+    const leftWall = new THREE.Mesh(sideWallGeo, wallMat);
+    leftWall.position.set(x - w/2, y + h/2, z);
+    leftWall.castShadow = true;
+    leftWall.receiveShadow = true;
+    this.scene.add(leftWall);
+    this.colliders.push(new THREE.Box3().setFromObject(leftWall));
+    
+    // Right wall (solid)
+    const rightWall = new THREE.Mesh(sideWallGeo, wallMat);
+    rightWall.position.set(x + w/2, y + h/2, z);
+    rightWall.castShadow = true;
+    rightWall.receiveShadow = true;
+    this.scene.add(rightWall);
+    this.colliders.push(new THREE.Box3().setFromObject(rightWall));
+    
+    // Front wall with door opening (3 sections)
+    const doorWidth = 2;
+    const doorHeight = 2.5;
+    const sideWidth = (w - doorWidth) / 2;
+    
+    // Left section of front wall
+    const frontLeftGeo = new THREE.BoxGeometry(sideWidth, h, 0.3);
+    const frontLeft = new THREE.Mesh(frontLeftGeo, wallMat);
+    frontLeft.position.set(x - w/2 + sideWidth/2, y + h/2, z + d/2);
+    frontLeft.castShadow = true;
+    frontLeft.receiveShadow = true;
+    this.scene.add(frontLeft);
+    this.colliders.push(new THREE.Box3().setFromObject(frontLeft));
+    
+    // Right section of front wall
+    const frontRight = new THREE.Mesh(frontLeftGeo, wallMat);
+    frontRight.position.set(x + w/2 - sideWidth/2, y + h/2, z + d/2);
+    frontRight.castShadow = true;
+    frontRight.receiveShadow = true;
+    this.scene.add(frontRight);
+    this.colliders.push(new THREE.Box3().setFromObject(frontRight));
+    
+    // Top section above door
+    const topGeo = new THREE.BoxGeometry(doorWidth, h - doorHeight, 0.3);
+    const topSection = new THREE.Mesh(topGeo, wallMat);
+    topSection.position.set(x, y + doorHeight + (h - doorHeight)/2, z + d/2);
+    topSection.castShadow = true;
+    topSection.receiveShadow = true;
+    this.scene.add(topSection);
+    this.colliders.push(new THREE.Box3().setFromObject(topSection));
+    
+    // Interior furniture - table
+    const tableMat = new THREE.MeshStandardMaterial({ color: 0x4a3a2a, roughness: 0.8 });
+    const tableTopGeo = new THREE.BoxGeometry(2, 0.1, 1);
+    const tableTop = new THREE.Mesh(tableTopGeo, tableMat);
+    tableTop.position.set(x - 3, y + 0.8, z - 2);
+    tableTop.castShadow = true;
+    this.scene.add(tableTop);
+    
+    // Table legs
+    const legGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.8, 8);
+    const legPositions = [
+      [x - 3.8, y + 0.4, z - 2.4],
+      [x - 2.2, y + 0.4, z - 2.4],
+      [x - 3.8, y + 0.4, z - 1.6],
+      [x - 2.2, y + 0.4, z - 1.6],
+    ];
+    legPositions.forEach(([lx, ly, lz]) => {
+      const leg = new THREE.Mesh(legGeo, tableMat);
+      leg.position.set(lx, ly, lz);
+      this.scene.add(leg);
+    });
+    
+    // Chairs
+    const chairMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.9 });
+    const chairGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+    const chair1 = new THREE.Mesh(chairGeo, chairMat);
+    chair1.position.set(x - 3, y + 0.25, z - 1);
+    chair1.castShadow = true;
+    this.scene.add(chair1);
+    
+    const chair2 = new THREE.Mesh(chairGeo, chairMat);
+    chair2.position.set(x - 3, y + 0.25, z - 3);
+    chair2.castShadow = true;
+    this.scene.add(chair2);
+    
+    // Shelves on back wall
+    const shelfMat = new THREE.MeshStandardMaterial({ color: 0x5a4a3a, roughness: 0.8 });
+    const shelfGeo = new THREE.BoxGeometry(3, 0.1, 0.4);
+    const shelf1 = new THREE.Mesh(shelfGeo, shelfMat);
+    shelf1.position.set(x + 3, y + 1.5, z - d/2 + 0.2);
+    this.scene.add(shelf1);
+    
+    const shelf2 = new THREE.Mesh(shelfGeo, shelfMat);
+    shelf2.position.set(x + 3, y + 2.5, z - d/2 + 0.2);
+    this.scene.add(shelf2);
+    
+    // Boxes on shelves
+    const boxMat = new THREE.MeshStandardMaterial({ color: 0x6a5a4a, roughness: 0.9 });
+    const boxGeo = new THREE.BoxGeometry(0.4, 0.3, 0.3);
+    for (let i = 0; i < 3; i++) {
+      const box = new THREE.Mesh(boxGeo, boxMat);
+      box.position.set(x + 2 + i * 0.5, y + 1.65, z - d/2 + 0.2);
+      box.castShadow = true;
+      this.scene.add(box);
+    }
+    
+    // Interior lighting - hanging lamp
+    const lampWireGeo = new THREE.CylinderGeometry(0.01, 0.01, 0.5, 4);
+    const lampWireMat = new THREE.MeshBasicMaterial({ color: 0x333333 });
+    const lampWire = new THREE.Mesh(lampWireGeo, lampWireMat);
+    lampWire.position.set(x, y + h - 0.25, z);
+    this.scene.add(lampWire);
+    
+    const lampBulbGeo = new THREE.SphereGeometry(0.15, 8, 8);
+    const lampBulbMat = new THREE.MeshBasicMaterial({ color: 0xffdd88 });
+    const lampBulb = new THREE.Mesh(lampBulbGeo, lampBulbMat);
+    lampBulb.position.set(x, y + h - 0.5, z);
+    this.scene.add(lampBulb);
+    
+    const interiorLight = new THREE.PointLight(0xffdd88, 2.5, 15, 1.5);
+    interiorLight.position.set(x, y + h - 0.5, z);
+    interiorLight.castShadow = true;
+    interiorLight.shadow.mapSize.set(512, 512);
+    this.scene.add(interiorLight);
+    
+    // Second lamp near entrance
+    const lamp2Wire = new THREE.Mesh(lampWireGeo, lampWireMat);
+    lamp2Wire.position.set(x + 3, y + h - 0.25, z + 2);
+    this.scene.add(lamp2Wire);
+    
+    const lamp2Bulb = new THREE.Mesh(lampBulbGeo, lampBulbMat);
+    lamp2Bulb.position.set(x + 3, y + h - 0.5, z + 2);
+    this.scene.add(lamp2Bulb);
+    
+    const interiorLight2 = new THREE.PointLight(0xffdd88, 1.5, 10, 1.5);
+    interiorLight2.position.set(x + 3, y + h - 0.5, z + 2);
+    this.scene.add(interiorLight2);
+  }
+  
   private createBuilding(x: number, y: number, z: number, w: number, h: number, d: number, mat: THREE.Material) {
     const geo = new THREE.BoxGeometry(w, h, d);
     const building = new THREE.Mesh(geo, mat);
@@ -645,6 +803,8 @@ export class GameEngine {
     gun.position.set(0.3, 1.1, -0.2);
     this.companionMesh.add(gun);
     
+    // Position companion on ground (y=0, model parts are offset upward)
+    this.companionPos.set(-2, 0, -2);
     this.companionMesh.position.copy(this.companionPos);
     this.scene.add(this.companionMesh);
   }
@@ -1304,6 +1464,7 @@ export class GameEngine {
         const dir = this.playerPos.clone().sub(this.companionPos).normalize();
         dir.y = 0;
         this.companionPos.add(dir.multiplyScalar(4 * dt));
+        this.companionPos.y = 0; // Keep on ground
       }
       
       // Check for nearby enemies to engage
@@ -1333,11 +1494,14 @@ export class GameEngine {
         // Move to cover distance
         if (dist < 5) {
           const away = this.companionPos.clone().sub(this.companionTarget.position).normalize();
+          away.y = 0;
           this.companionPos.add(away.multiplyScalar(3 * dt));
         } else if (dist > 15) {
           const toward = this.companionTarget.position.clone().sub(this.companionPos).normalize();
+          toward.y = 0;
           this.companionPos.add(toward.multiplyScalar(3 * dt));
         }
+        this.companionPos.y = 0; // Keep on ground
         
         // Shoot (burst fire - AI economy)
         const now = Date.now();
@@ -1382,8 +1546,10 @@ export class GameEngine {
           awayFromEnemies.add(this.companionPos.clone().sub(e.position).normalize());
         }
       });
+      awayFromEnemies.y = 0;
       awayFromEnemies.normalize();
       this.companionPos.add(awayFromEnemies.multiplyScalar(3 * dt));
+      this.companionPos.y = 0; // Keep on ground
       
       // Heal over time
       this.companionHP = Math.min(this.companionMaxHP, this.companionHP + 5 * dt);
