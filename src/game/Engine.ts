@@ -136,10 +136,9 @@ export class GameEngine {
     this.companionPos = new THREE.Vector3(-2, 1.7, -2);
     
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.enabled = false; // Disabled for performance
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.5;
+    this.renderer.toneMappingExposure = 1.8; // Brighter to compensate for no shadows
   }
 
   init(container: HTMLElement, difficulty: DifficultyLevel) {
@@ -181,17 +180,10 @@ export class GameEngine {
     const hemi = new THREE.HemisphereLight(0x556677, 0x333333, 0.8);
     this.scene.add(hemi);
     
-    // Moon light — very bright
+    // Moon light — very bright, NO shadows for performance
     const moon = new THREE.DirectionalLight(0x7799cc, 0.8);
     moon.position.set(50, 80, 30);
-    moon.castShadow = true;
-    moon.shadow.mapSize.set(2048, 2048);
-    moon.shadow.camera.near = 0.5;
-    moon.shadow.camera.far = 200;
-    moon.shadow.camera.left = -60;
-    moon.shadow.camera.right = 60;
-    moon.shadow.camera.top = 60;
-    moon.shadow.camera.bottom = -60;
+    moon.castShadow = false; // Disabled for performance
     this.scene.add(moon);
     
     // === FLASHLIGHT (SpotLight attached to camera) ===
@@ -206,30 +198,19 @@ export class GameEngine {
     playerLight.position.set(0, 0, 0);
     this.camera.add(playerLight);
     
-    // Hanging lights (bare bulbs on wires) — many more for better visibility
+    // Hanging lights (bare bulbs on wires) — OPTIMIZED: only 15 lights, no shadows
     const lightPositions = [
-      // Central area - dense lighting
-      [5, 3.5, 5], [-5, 3.5, -5], [10, 3.2, -3], [-8, 3.5, 8],
-      [15, 3.5, 0], [0, 3.5, 12], [-12, 3.5, -10], [20, 3.5, 15],
-      [-3, 3.5, 3], [7, 3.5, -7], [3, 3.5, -8], [-7, 3.5, 6],
-      // North district
-      [0, 3.5, -40], [-15, 3.5, -45], [20, 3.5, -50], [10, 3.5, -35],
-      [-10, 3.5, -30], [5, 3.5, -45], [-25, 3.5, -40],
-      // East district
-      [40, 3.5, 0], [50, 3.5, -15], [45, 3.5, 20], [35, 3.5, 10],
-      [55, 3.5, -5], [40, 3.5, -25], [50, 3.5, 15],
-      // West district
-      [-40, 3.5, 0], [-50, 3.5, -15], [-45, 3.5, 25], [-35, 3.5, 10],
-      [-55, 3.5, -5], [-40, 3.5, -20], [-50, 3.5, 20],
-      // South district
-      [0, 3.5, 45], [-20, 3.5, 50], [20, 3.5, 50], [10, 3.5, 40],
-      [-10, 3.5, 35], [5, 3.5, 55], [-25, 3.5, 45],
-      // Far areas - strategic lighting
-      [60, 3.5, 0], [-60, 3.5, -30], [0, 3.5, -60],
-      [30, 3.5, 30], [-30, 3.5, -30], [45, 3.5, -40],
-      [-45, 3.5, 40], [35, 3.5, -50], [-35, 3.5, 50],
-      // Extra lights along paths
-      [8, 3.5, -15], [-8, 3.5, 15], [12, 3.5, 25], [-12, 3.5, -25],
+      // Central area
+      [5, 3.5, 5], [-5, 3.5, -5], [10, 3.5, -3], [-8, 3.5, 8],
+      [0, 3.5, 12], [-12, 3.5, -10], [20, 3.5, 15],
+      // North
+      [0, 3.5, -40], [20, 3.5, -50],
+      // East
+      [45, 3.5, 0], [50, 3.5, 20],
+      // West
+      [-45, 3.5, 0], [-50, 3.5, 25],
+      // South
+      [0, 3.5, 45], [20, 3.5, 50],
     ];
     
     lightPositions.forEach(([x, y, z]) => {
@@ -247,9 +228,10 @@ export class GameEngine {
       bulb.position.set(x, y, z);
       this.scene.add(bulb);
       
-      // Point light — very bright and wide radius
-      const light = new THREE.PointLight(0xffaa44, 3.0, 25, 1.2);
+      // Point light — NO shadows for performance
+      const light = new THREE.PointLight(0xffaa44, 2.5, 20, 1.5);
       light.position.set(x, y, z);
+      light.castShadow = false; // Critical for performance
       this.scene.add(light);
     });
     
@@ -271,11 +253,10 @@ export class GameEngine {
     // Ground - wet concrete (200x200 map)
     const groundGeo = new THREE.PlaneGeometry(200, 200);
     const groundMat = new THREE.MeshStandardMaterial({ 
-      color: 0x3a3a3a, roughness: 0.85, metalness: 0.1 
+      color: 0x4a4a4a, roughness: 0.85, metalness: 0.1 
     });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
     this.scene.add(ground);
     // Don't add ground to colliders — it's flat, handled by Y check
     
@@ -355,8 +336,6 @@ export class GameEngine {
         Math.sin(angle) * dist
       );
       barrier.rotation.y = Math.random() * Math.PI;
-      barrier.castShadow = true;
-      barrier.receiveShadow = true;
       this.scene.add(barrier);
       // Don't add to colliders - decorative only for open world
       this.levelObjects.push(barrier);
@@ -385,7 +364,6 @@ export class GameEngine {
         Math.sin(angle) * dist
       );
       carGroup.rotation.y = Math.random() * Math.PI * 2;
-      carGroup.castShadow = true;
       this.scene.add(carGroup);
       // Don't add to colliders - decorative for open world
     }
@@ -405,7 +383,6 @@ export class GameEngine {
         Math.sin(angle) * dist
       );
       rubble.rotation.set(Math.random() * 0.3, Math.random() * Math.PI, Math.random() * 0.3);
-      rubble.castShadow = true;
       this.scene.add(rubble);
       // No colliders - decorative only
     }
@@ -437,7 +414,6 @@ export class GameEngine {
         0.45,
         Math.sin(angle) * dist
       );
-      barrel.castShadow = true;
       this.scene.add(barrel);
       // No colliders - decorative only
     }
@@ -484,7 +460,6 @@ export class GameEngine {
     const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(x, y + 0.01, z);
-    floor.receiveShadow = true;
     this.scene.add(floor);
     
     // Ceiling
@@ -497,8 +472,6 @@ export class GameEngine {
     const backWallGeo = new THREE.BoxGeometry(w, h, 0.3);
     const backWall = new THREE.Mesh(backWallGeo, wallMat);
     backWall.position.set(x, y + h/2, z - d/2);
-    backWall.castShadow = true;
-    backWall.receiveShadow = true;
     this.scene.add(backWall);
     this.colliders.push(new THREE.Box3().setFromObject(backWall));
     
@@ -506,38 +479,30 @@ export class GameEngine {
     const sideWallGeo = new THREE.BoxGeometry(0.3, h, d);
     const leftWall = new THREE.Mesh(sideWallGeo, wallMat);
     leftWall.position.set(x - w/2, y + h/2, z);
-    leftWall.castShadow = true;
-    leftWall.receiveShadow = true;
     this.scene.add(leftWall);
     this.colliders.push(new THREE.Box3().setFromObject(leftWall));
     
     // Right wall (solid)
     const rightWall = new THREE.Mesh(sideWallGeo, wallMat);
     rightWall.position.set(x + w/2, y + h/2, z);
-    rightWall.castShadow = true;
-    rightWall.receiveShadow = true;
     this.scene.add(rightWall);
     this.colliders.push(new THREE.Box3().setFromObject(rightWall));
     
-    // Front wall with door opening (3 sections)
-    const doorWidth = 2;
-    const doorHeight = 2.5;
+    // Front wall with WIDE door opening (3 sections)
+    const doorWidth = 3; // Wider door for easier entry
+    const doorHeight = 3; // Taller door
     const sideWidth = (w - doorWidth) / 2;
     
     // Left section of front wall
     const frontLeftGeo = new THREE.BoxGeometry(sideWidth, h, 0.3);
     const frontLeft = new THREE.Mesh(frontLeftGeo, wallMat);
     frontLeft.position.set(x - w/2 + sideWidth/2, y + h/2, z + d/2);
-    frontLeft.castShadow = true;
-    frontLeft.receiveShadow = true;
     this.scene.add(frontLeft);
     this.colliders.push(new THREE.Box3().setFromObject(frontLeft));
     
     // Right section of front wall
     const frontRight = new THREE.Mesh(frontLeftGeo, wallMat);
     frontRight.position.set(x + w/2 - sideWidth/2, y + h/2, z + d/2);
-    frontRight.castShadow = true;
-    frontRight.receiveShadow = true;
     this.scene.add(frontRight);
     this.colliders.push(new THREE.Box3().setFromObject(frontRight));
     
@@ -545,124 +510,60 @@ export class GameEngine {
     const topGeo = new THREE.BoxGeometry(doorWidth, h - doorHeight, 0.3);
     const topSection = new THREE.Mesh(topGeo, wallMat);
     topSection.position.set(x, y + doorHeight + (h - doorHeight)/2, z + d/2);
-    topSection.castShadow = true;
-    topSection.receiveShadow = true;
     this.scene.add(topSection);
     this.colliders.push(new THREE.Box3().setFromObject(topSection));
     
-    // Interior furniture - table
+    // Interior furniture - SIMPLE table (no legs for performance)
     const tableMat = new THREE.MeshStandardMaterial({ color: 0x4a3a2a, roughness: 0.8 });
-    const tableTopGeo = new THREE.BoxGeometry(2, 0.1, 1);
+    const tableTopGeo = new THREE.BoxGeometry(2, 0.8, 1);
     const tableTop = new THREE.Mesh(tableTopGeo, tableMat);
-    tableTop.position.set(x - 3, y + 0.8, z - 2);
-    tableTop.castShadow = true;
+    tableTop.position.set(x - 3, y + 0.4, z - 2);
     this.scene.add(tableTop);
     
-    // Table legs
-    const legGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.8, 8);
-    const legPositions = [
-      [x - 3.8, y + 0.4, z - 2.4],
-      [x - 2.2, y + 0.4, z - 2.4],
-      [x - 3.8, y + 0.4, z - 1.6],
-      [x - 2.2, y + 0.4, z - 1.6],
-    ];
-    legPositions.forEach(([lx, ly, lz]) => {
-      const leg = new THREE.Mesh(legGeo, tableMat);
-      leg.position.set(lx, ly, lz);
-      this.scene.add(leg);
-    });
-    
-    // Chairs
+    // Simple chair (single box)
     const chairMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.9 });
-    const chairGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+    const chairGeo = new THREE.BoxGeometry(0.5, 0.8, 0.5);
     const chair1 = new THREE.Mesh(chairGeo, chairMat);
-    chair1.position.set(x - 3, y + 0.25, z - 1);
-    chair1.castShadow = true;
+    chair1.position.set(x - 3, y + 0.4, z - 1);
     this.scene.add(chair1);
     
-    const chair2 = new THREE.Mesh(chairGeo, chairMat);
-    chair2.position.set(x - 3, y + 0.25, z - 3);
-    chair2.castShadow = true;
-    this.scene.add(chair2);
-    
-    // Shelves on back wall
+    // Shelf on back wall
     const shelfMat = new THREE.MeshStandardMaterial({ color: 0x5a4a3a, roughness: 0.8 });
     const shelfGeo = new THREE.BoxGeometry(3, 0.1, 0.4);
     const shelf1 = new THREE.Mesh(shelfGeo, shelfMat);
-    shelf1.position.set(x + 3, y + 1.5, z - d/2 + 0.2);
+    shelf1.position.set(x + 3, y + 2, z - d/2 + 0.2);
     this.scene.add(shelf1);
     
-    const shelf2 = new THREE.Mesh(shelfGeo, shelfMat);
-    shelf2.position.set(x + 3, y + 2.5, z - d/2 + 0.2);
-    this.scene.add(shelf2);
-    
-    // Boxes on shelves
-    const boxMat = new THREE.MeshStandardMaterial({ color: 0x6a5a4a, roughness: 0.9 });
-    const boxGeo = new THREE.BoxGeometry(0.4, 0.3, 0.3);
-    for (let i = 0; i < 3; i++) {
-      const box = new THREE.Mesh(boxGeo, boxMat);
-      box.position.set(x + 2 + i * 0.5, y + 1.65, z - d/2 + 0.2);
-      box.castShadow = true;
-      this.scene.add(box);
-    }
-    
-    // Interior lighting - hanging lamp
-    const lampWireGeo = new THREE.CylinderGeometry(0.01, 0.01, 0.5, 4);
-    const lampWireMat = new THREE.MeshBasicMaterial({ color: 0x333333 });
-    const lampWire = new THREE.Mesh(lampWireGeo, lampWireMat);
-    lampWire.position.set(x, y + h - 0.25, z);
-    this.scene.add(lampWire);
-    
+    // Interior lighting - ONE hanging lamp (no shadows)
     const lampBulbGeo = new THREE.SphereGeometry(0.15, 8, 8);
     const lampBulbMat = new THREE.MeshBasicMaterial({ color: 0xffdd88 });
     const lampBulb = new THREE.Mesh(lampBulbGeo, lampBulbMat);
     lampBulb.position.set(x, y + h - 0.5, z);
     this.scene.add(lampBulb);
     
-    const interiorLight = new THREE.PointLight(0xffdd88, 2.5, 15, 1.5);
+    const interiorLight = new THREE.PointLight(0xffdd88, 3.0, 15, 1.5);
     interiorLight.position.set(x, y + h - 0.5, z);
-    interiorLight.castShadow = true;
-    interiorLight.shadow.mapSize.set(512, 512);
+    interiorLight.castShadow = false; // No shadows for performance
     this.scene.add(interiorLight);
-    
-    // Second lamp near entrance
-    const lamp2Wire = new THREE.Mesh(lampWireGeo, lampWireMat);
-    lamp2Wire.position.set(x + 3, y + h - 0.25, z + 2);
-    this.scene.add(lamp2Wire);
-    
-    const lamp2Bulb = new THREE.Mesh(lampBulbGeo, lampBulbMat);
-    lamp2Bulb.position.set(x + 3, y + h - 0.5, z + 2);
-    this.scene.add(lamp2Bulb);
-    
-    const interiorLight2 = new THREE.PointLight(0xffdd88, 1.5, 10, 1.5);
-    interiorLight2.position.set(x + 3, y + h - 0.5, z + 2);
-    this.scene.add(interiorLight2);
   }
   
   private createBuilding(x: number, y: number, z: number, w: number, h: number, d: number, mat: THREE.Material) {
     const geo = new THREE.BoxGeometry(w, h, d);
     const building = new THREE.Mesh(geo, mat);
     building.position.set(x, y + h / 2, z);
-    building.castShadow = true;
-    building.receiveShadow = true;
     this.scene.add(building);
     this.colliders.push(new THREE.Box3().setFromObject(building));
     this.levelObjects.push(building);
     
-    // Windows (dark holes)
+    // Windows (dark holes) - only front side for performance
     const windowMat = new THREE.MeshBasicMaterial({ color: 0x050510 });
     const windowGeo = new THREE.PlaneGeometry(1, 1.2);
     for (let wy = 2; wy < h - 1; wy += 3) {
       for (let wx = -w/2 + 2; wx < w/2 - 1; wx += 2.5) {
-        // Front
+        // Front only
         const win1 = new THREE.Mesh(windowGeo, windowMat);
         win1.position.set(x + wx, y + wy, z + d/2 + 0.01);
         this.scene.add(win1);
-        // Back
-        const win2 = new THREE.Mesh(windowGeo, windowMat);
-        win2.position.set(x + wx, y + wy, z - d/2 - 0.01);
-        win2.rotation.y = Math.PI;
-        this.scene.add(win2);
       }
     }
   }
@@ -679,7 +580,7 @@ export class GameEngine {
   }
 
   private createRain() {
-    const rainCount = 3000;
+    const rainCount = 1000; // Reduced from 3000 for performance
     const rainGeo = new THREE.BufferGeometry();
     const positions = new Float32Array(rainCount * 3);
     
@@ -692,7 +593,7 @@ export class GameEngine {
     rainGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     
     const rainMat = new THREE.PointsMaterial({ 
-      color: 0x8899aa, size: 0.05, transparent: true, opacity: 0.4 
+      color: 0x8899aa, size: 0.05, transparent: true, opacity: 0.3 
     });
     const rain = new THREE.Points(rainGeo, rainMat);
     rain.name = 'rain';
@@ -712,7 +613,7 @@ export class GameEngine {
     this.weaponMesh.add(body);
     
     // Barrel
-    const barrelGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.15, 8);
+    const barrelGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.15, 6);
     const barrel = new THREE.Mesh(barrelGeo, bodyMat);
     barrel.rotation.x = Math.PI / 2;
     barrel.position.set(0, 0.03, -0.15);
@@ -769,7 +670,7 @@ export class GameEngine {
     this.weaponMesh.add(body);
     
     // Barrel
-    const barrelGeo = new THREE.CylinderGeometry(0.01, 0.01, bodyD * 0.6, 8);
+    const barrelGeo = new THREE.CylinderGeometry(0.01, 0.01, bodyD * 0.6, 6);
     const barrel = new THREE.Mesh(barrelGeo, bodyMat);
     barrel.rotation.x = Math.PI / 2;
     barrel.position.set(0, bodyH * 0.3, -bodyD * 0.6);
@@ -783,14 +684,14 @@ export class GameEngine {
     this.companionMesh = new THREE.Group();
     
     // Body
-    const bodyGeo = new THREE.CapsuleGeometry(0.25, 0.8, 4, 8);
+    const bodyGeo = new THREE.CapsuleGeometry(0.25, 0.8, 3, 6);
     const bodyMat = new THREE.MeshStandardMaterial({ color: 0x3a4a3a, roughness: 0.8 });
     const body = new THREE.Mesh(bodyGeo, bodyMat);
     body.position.y = 0.9;
     this.companionMesh.add(body);
     
     // Head
-    const headGeo = new THREE.SphereGeometry(0.15, 8, 8);
+    const headGeo = new THREE.SphereGeometry(0.15, 6, 6);
     const headMat = new THREE.MeshStandardMaterial({ color: 0x5a5a4a, roughness: 0.7 });
     const head = new THREE.Mesh(headGeo, headMat);
     head.position.y = 1.55;
@@ -845,7 +746,7 @@ export class GameEngine {
     }
     
     // Head
-    const headGeo = new THREE.SphereGeometry(0.15 * scale, 8, 8);
+    const headGeo = new THREE.SphereGeometry(0.15 * scale, 6, 6); // Reduced segments
     const headMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.9 });
     const head = new THREE.Mesh(headGeo, headMat);
     head.position.y = type === 'crawler' ? 0.5 : 1.6 * scale;
@@ -854,7 +755,7 @@ export class GameEngine {
     hitZones.set('head', head);
     
     // Torso
-    const torsoGeo = new THREE.CapsuleGeometry(0.2 * scale, 0.5 * scale, 4, 8);
+    const torsoGeo = new THREE.CapsuleGeometry(0.2 * scale, 0.5 * scale, 3, 6); // Reduced segments
     const torsoMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.9 });
     const torso = new THREE.Mesh(torsoGeo, torsoMat);
     torso.position.y = type === 'crawler' ? 0.3 : 1.1 * scale;
@@ -863,7 +764,7 @@ export class GameEngine {
     hitZones.set('chest', torso);
     
     // Stomach
-    const stomachGeo = new THREE.CapsuleGeometry(0.15 * scale, 0.2 * scale, 4, 8);
+    const stomachGeo = new THREE.CapsuleGeometry(0.15 * scale, 0.2 * scale, 3, 6);
     const stomach = new THREE.Mesh(stomachGeo, torsoMat);
     stomach.position.y = type === 'crawler' ? 0.15 : 0.7 * scale;
     stomach.name = 'stomach';
@@ -871,7 +772,7 @@ export class GameEngine {
     hitZones.set('stomach', stomach);
     
     // Arms
-    const armGeo = new THREE.CapsuleGeometry(0.06 * scale, 0.4 * scale, 4, 8);
+    const armGeo = new THREE.CapsuleGeometry(0.06 * scale, 0.4 * scale, 3, 6);
     const armMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.9 });
     
     const leftArm = new THREE.Mesh(armGeo, armMat);
@@ -887,7 +788,7 @@ export class GameEngine {
     hitZones.set('rightArm', rightArm);
     
     // Legs
-    const legGeo = new THREE.CapsuleGeometry(0.08 * scale, 0.5 * scale, 4, 8);
+    const legGeo = new THREE.CapsuleGeometry(0.08 * scale, 0.5 * scale, 3, 6);
     
     const leftLeg = new THREE.Mesh(legGeo, armMat);
     leftLeg.position.set(-0.12 * scale, type === 'crawler' ? 0.1 : 0.35 * scale, 0);
@@ -1034,16 +935,11 @@ export class GameEngine {
     const box = new THREE.Mesh(boxGeo, boxMat);
     group.add(box);
     
-    // Glow — bigger
-    const glowGeo = new THREE.SphereGeometry(0.4, 8, 8);
-    const glowMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.25 });
+    // Glow — bigger (no PointLight for performance)
+    const glowGeo = new THREE.SphereGeometry(0.5, 8, 8);
+    const glowMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4 });
     const glow = new THREE.Mesh(glowGeo, glowMat);
     group.add(glow);
-    
-    // Point light for visibility
-    const lootLight = new THREE.PointLight(color, 0.5, 5, 2);
-    lootLight.position.y = 0.3;
-    group.add(lootLight);
     
     group.position.copy(position);
     group.position.y = 0.3;
@@ -1295,7 +1191,7 @@ export class GameEngine {
   }
 
   private spawnBlood(position: THREE.Vector3) {
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 4; i++) { // Reduced from 8
       const geo = new THREE.SphereGeometry(0.03, 4, 4);
       const mat = new THREE.MeshBasicMaterial({ color: 0x880000 });
       const particle = new THREE.Mesh(geo, mat);
@@ -1309,8 +1205,8 @@ export class GameEngine {
           Math.random() * 2,
           (Math.random() - 0.5) * 3
         ),
-        life: 1.0,
-        maxLife: 1.0,
+        life: 0.5, // Reduced from 1.0
+        maxLife: 0.5,
       });
     }
   }
