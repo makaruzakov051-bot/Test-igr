@@ -246,7 +246,7 @@ function DifficultySelect({ onSelect, onBack }: { onSelect: (d: DifficultyLevel)
 }
 
 // ============ HUD ============
-function HUD({ state, hitMarkers, waveInfo, isLocked }: { state: GameState; hitMarkers: { zone: string; damage: number; id: number }[]; waveInfo: { wave: number; enemiesLeft: number }; isLocked: boolean }) {
+function HUD({ state, hitMarkers, waveInfo, isLocked, isPaused }: { state: GameState; hitMarkers: { zone: string; damage: number; id: number }[]; waveInfo: { wave: number; enemiesLeft: number }; isLocked: boolean; isPaused: boolean }) {
   const hpPercent = (state.playerHP / state.playerMaxHP) * 100;
   const companionPercent = (state.companionHP / state.companionMaxHP) * 100;
   const reserve = state.ammoReserve[state.currentWeapon?.caliber || ''] || 0;
@@ -341,8 +341,15 @@ function HUD({ state, hitMarkers, waveInfo, isLocked }: { state: GameState; hitM
         <div className="text-gray-500 text-[10px]">Врагов: {waveInfo.enemiesLeft}</div>
       </div>
       
+      {/* Pause indicator */}
+      {isPaused && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-black/70 border border-yellow-600 px-4 py-2 text-center pointer-events-none">
+          <div className="text-yellow-400 text-sm font-bold">⏸ ПАУЗА</div>
+        </div>
+      )}
+      
       {/* Pointer lock prompt */}
-      {!isLocked && (
+      {!isLocked && !isPaused && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black/80 border border-gray-600 px-6 py-4 text-center pointer-events-none">
           <div className="text-gray-300 text-sm mb-1">Кликните для захвата мыши</div>
           <div className="text-gray-500 text-xs">WASD — движение • Мышь — обзор • ЛКМ — огонь</div>
@@ -947,6 +954,10 @@ export default function App() {
         e.preventDefault();
         if (showShop) {
           setShowShop(false);
+          // Снимаем паузу если нет других открытых меню
+          if (!showInventory && !showCrafting && !showSettings && engineRef.current) {
+            engineRef.current.resume();
+          }
         } else {
           setShowShop(true);
           setShowInventory(false);
@@ -954,17 +965,29 @@ export default function App() {
           if (document.pointerLockElement) {
             document.exitPointerLock();
           }
+          // Пауза игры
+          if (engineRef.current) {
+            engineRef.current.pause();
+          }
         }
       }
       if (e.code === 'KeyC') {
         if (showCrafting) {
           setShowCrafting(false);
+          // Снимаем паузу если нет других открытых меню
+          if (!showInventory && !showShop && !showSettings && engineRef.current) {
+            engineRef.current.resume();
+          }
         } else {
           setShowCrafting(true);
           setShowInventory(false);
           setShowShop(false);
           if (document.pointerLockElement) {
             document.exitPointerLock();
+          }
+          // Пауза игры
+          if (engineRef.current) {
+            engineRef.current.pause();
           }
         }
       }
@@ -973,12 +996,24 @@ export default function App() {
           setShowInventory(false);
           setShowShop(false);
           setShowCrafting(false);
+          // Снимаем паузу если нет настроек
+          if (!showSettings && engineRef.current) {
+            engineRef.current.resume();
+          }
         } else if (showSettings) {
           setShowSettings(false);
+          // Снимаем паузу
+          if (engineRef.current) {
+            engineRef.current.resume();
+          }
         } else {
           setShowSettings(true);
           if (document.pointerLockElement) {
             document.exitPointerLock();
+          }
+          // Пауза игры
+          if (engineRef.current) {
+            engineRef.current.pause();
           }
         }
       }
@@ -1034,10 +1069,18 @@ export default function App() {
     if (document.pointerLockElement) {
       document.exitPointerLock();
     }
+    // Пауза игры
+    if (engineRef.current) {
+      engineRef.current.pause();
+    }
   };
   
   const closeInventory = () => {
     setShowInventory(false);
+    // Снимаем паузу если нет других открытых меню
+    if (!showShop && !showCrafting && !showSettings && engineRef.current) {
+      engineRef.current.resume();
+    }
   };
   
   const handleBuy = (item: { type: string; id: string; name: string; price: number }) => {
@@ -1112,13 +1155,25 @@ export default function App() {
       {gameState.gamePhase === 'menu' && !showSettings && (
         <MainMenu 
           onStart={() => setGameState(prev => ({ ...prev, gamePhase: 'difficulty' }))} 
-          onSettings={() => setShowSettings(true)}
+          onSettings={() => {
+            setShowSettings(true);
+            // Пауза если уже в игре (не должно быть, но на всякий случай)
+            if (engineRef.current) {
+              engineRef.current.pause();
+            }
+          }}
         />
       )}
       
       {showSettings && (
         <Settings 
-          onClose={() => setShowSettings(false)}
+          onClose={() => {
+            setShowSettings(false);
+            // Снимаем паузу если нет других открытых меню
+            if (!showInventory && !showShop && !showCrafting && engineRef.current) {
+              engineRef.current.resume();
+            }
+          }}
           onMainMenu={() => {
             setShowSettings(false);
             if (engineRef.current) {
@@ -1143,7 +1198,7 @@ export default function App() {
       {/* HUD */}
       {(gameState.gamePhase === 'playing') && (
         <>
-          <HUD state={gameState} hitMarkers={hitMarkers} waveInfo={waveInfo} isLocked={isPointerLocked} />
+          <HUD state={gameState} hitMarkers={hitMarkers} waveInfo={waveInfo} isLocked={isPointerLocked} isPaused={showInventory || showShop || showCrafting || showSettings} />
           <MobileControls 
             onMove={(x, y) => {
               if (engineRef.current) {
@@ -1190,7 +1245,13 @@ export default function App() {
       {showShop && gameState.gamePhase === 'playing' && (
         <Shop 
           state={gameState} 
-          onClose={() => setShowShop(false)}
+          onClose={() => {
+            setShowShop(false);
+            // Снимаем паузу если нет других открытых меню
+            if (!showInventory && !showCrafting && !showSettings && engineRef.current) {
+              engineRef.current.resume();
+            }
+          }}
           onBuy={handleBuy}
         />
       )}
@@ -1199,7 +1260,13 @@ export default function App() {
       {showCrafting && gameState.gamePhase === 'playing' && (
         <Crafting 
           state={gameState}
-          onClose={() => setShowCrafting(false)}
+          onClose={() => {
+            setShowCrafting(false);
+            // Снимаем паузу если нет других открытых меню
+            if (!showInventory && !showShop && !showSettings && engineRef.current) {
+              engineRef.current.resume();
+            }
+          }}
           onCraft={handleCraft}
         />
       )}

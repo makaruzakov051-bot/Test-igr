@@ -105,6 +105,9 @@ export class GameEngine {
   private levelObjects: THREE.Mesh[] = [];
   private colliders: THREE.Box3[] = [];
   
+  // Pause
+  private isPaused: boolean = false;
+  
   // Callbacks
   private onStateUpdate: ((state: Partial<GameState>) => void) | null = null;
   private onHitMarker: ((zone: string, damage: number) => void) | null = null;
@@ -1311,8 +1314,21 @@ export class GameEngine {
           dir.multiplyScalar(enemy.speed * speedMult * typeSpeedMult).add(strafeDir), 
           0.08
         );
+        
+        // Сохраняем старую позицию для проверки коллизий
+        const oldPos = enemy.position.clone();
         enemy.position.add(enemy.velocity.clone().multiplyScalar(dt));
         enemy.position.y = 0;
+        
+        // Проверяем коллизии и корректируем позицию
+        const correctedPos = this.checkNPCCollision(enemy.position);
+        enemy.position.copy(correctedPos);
+        
+        // Если застряли, возвращаемся
+        if (enemy.position.distanceTo(oldPos) < 0.01 && enemy.velocity.length() > 0.1) {
+          enemy.position.copy(oldPos);
+          enemy.velocity.set(0, 0, 0);
+        }
         
         enemy.group.position.copy(enemy.position);
         
@@ -1359,8 +1375,21 @@ export class GameEngine {
       if (distToPlayer > 5) {
         const dir = this.playerPos.clone().sub(this.companionPos).normalize();
         dir.y = 0;
+        const oldPos = this.companionPos.clone();
         this.companionPos.add(dir.multiplyScalar(4 * dt));
         this.companionPos.y = 0; // Keep on ground
+        
+        // Проверка коллизий
+        const correctedPos = this.checkNPCCollision(this.companionPos);
+        this.companionPos.copy(correctedPos);
+        
+        // Если застряли, пробуем обойти
+        if (this.companionPos.distanceTo(oldPos) < 0.01) {
+          const avoidDir = new THREE.Vector3(-dir.z, 0, dir.x);
+          this.companionPos.add(avoidDir.multiplyScalar(2 * dt));
+          const correctedPos2 = this.checkNPCCollision(this.companionPos);
+          this.companionPos.copy(correctedPos2);
+        }
       }
       
       // Check for nearby enemies to engage
@@ -1391,13 +1420,40 @@ export class GameEngine {
         if (dist < 5) {
           const away = this.companionPos.clone().sub(this.companionTarget.position).normalize();
           away.y = 0;
+          const oldPos = this.companionPos.clone();
           this.companionPos.add(away.multiplyScalar(3 * dt));
+          this.companionPos.y = 0;
+          
+          // Проверка коллизий
+          const correctedPos = this.checkNPCCollision(this.companionPos);
+          this.companionPos.copy(correctedPos);
+          
+          // Если застряли, пробуем в сторону
+          if (this.companionPos.distanceTo(oldPos) < 0.01) {
+            const strafeDir = new THREE.Vector3(-away.z, 0, away.x);
+            this.companionPos.add(strafeDir.multiplyScalar(2 * dt));
+            const correctedPos2 = this.checkNPCCollision(this.companionPos);
+            this.companionPos.copy(correctedPos2);
+          }
         } else if (dist > 15) {
           const toward = this.companionTarget.position.clone().sub(this.companionPos).normalize();
           toward.y = 0;
+          const oldPos = this.companionPos.clone();
           this.companionPos.add(toward.multiplyScalar(3 * dt));
+          this.companionPos.y = 0;
+          
+          // Проверка коллизий
+          const correctedPos = this.checkNPCCollision(this.companionPos);
+          this.companionPos.copy(correctedPos);
+          
+          // Если застряли, пробуем в сторону
+          if (this.companionPos.distanceTo(oldPos) < 0.01) {
+            const strafeDir = new THREE.Vector3(-toward.z, 0, toward.x);
+            this.companionPos.add(strafeDir.multiplyScalar(2 * dt));
+            const correctedPos2 = this.checkNPCCollision(this.companionPos);
+            this.companionPos.copy(correctedPos2);
+          }
         }
-        this.companionPos.y = 0; // Keep on ground
         
         // Shoot (burst fire - AI economy)
         const now = Date.now();
@@ -1444,8 +1500,22 @@ export class GameEngine {
       });
       awayFromEnemies.y = 0;
       awayFromEnemies.normalize();
+      
+      const oldPos = this.companionPos.clone();
       this.companionPos.add(awayFromEnemies.multiplyScalar(3 * dt));
       this.companionPos.y = 0; // Keep on ground
+      
+      // Проверка коллизий
+      const correctedPos = this.checkNPCCollision(this.companionPos);
+      this.companionPos.copy(correctedPos);
+      
+      // Если застряли, пробуем в сторону
+      if (this.companionPos.distanceTo(oldPos) < 0.01) {
+        const strafeDir = new THREE.Vector3(-awayFromEnemies.z, 0, awayFromEnemies.x);
+        this.companionPos.add(strafeDir.multiplyScalar(2 * dt));
+        const correctedPos2 = this.checkNPCCollision(this.companionPos);
+        this.companionPos.copy(correctedPos2);
+      }
       
       // Heal over time
       this.companionHP = Math.min(this.companionMaxHP, this.companionHP + 5 * dt);
@@ -1731,14 +1801,18 @@ export class GameEngine {
     
     const dt = Math.min(this.clock.getDelta(), 0.05);
     
-    this.updatePlayer(dt);
-    this.updateEnemies(dt);
-    this.updateCompanion(dt);
-    this.updateRagdolls(dt);
-    this.updateParticles(dt);
-    this.updateLoot(dt);
-    this.updateRain();
+    // Только обновляем логику если не на паузе
+    if (!this.isPaused) {
+      this.updatePlayer(dt);
+      this.updateEnemies(dt);
+      this.updateCompanion(dt);
+      this.updateRagdolls(dt);
+      this.updateParticles(dt);
+      this.updateLoot(dt);
+      this.updateRain();
+    }
     
+    // Рендерим всегда (чтобы видеть UI)
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -1785,5 +1859,58 @@ export class GameEngine {
       this.container.removeChild(this.renderer.domElement);
     }
     this.renderer.dispose();
+  }
+  
+  // Пауза
+  pause() {
+    this.isPaused = true;
+  }
+  
+  resume() {
+    this.isPaused = false;
+  }
+  
+  isGamePaused(): boolean {
+    return this.isPaused;
+  }
+  
+  // Проверка коллизий для NPC
+  private checkNPCCollision(position: THREE.Vector3, radius: number = 0.4): THREE.Vector3 {
+    const newPos = position.clone();
+    const npcBox = new THREE.Box3().setFromCenterAndSize(
+      newPos,
+      new THREE.Vector3(radius * 2, 1.7, radius * 2)
+    );
+    
+    // Проверяем X и Z отдельно для скольжения вдоль стен
+    const testBoxX = new THREE.Box3().setFromCenterAndSize(
+      new THREE.Vector3(newPos.x, position.y, position.z),
+      new THREE.Vector3(radius * 2, 1.7, radius * 2)
+    );
+    let blockedX = false;
+    for (const collider of this.colliders) {
+      if (testBoxX.intersectsBox(collider)) {
+        blockedX = true;
+        break;
+      }
+    }
+    
+    const testBoxZ = new THREE.Box3().setFromCenterAndSize(
+      new THREE.Vector3(position.x, position.y, newPos.z),
+      new THREE.Vector3(radius * 2, 1.7, radius * 2)
+    );
+    let blockedZ = false;
+    for (const collider of this.colliders) {
+      if (testBoxZ.intersectsBox(collider)) {
+        blockedZ = true;
+        break;
+      }
+    }
+    
+    // Применяем движение только по незаблокированным осям
+    if (blockedX) newPos.x = position.x;
+    if (blockedZ) newPos.z = position.z;
+    
+    return newPos;
   }
 }
